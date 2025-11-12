@@ -39,8 +39,8 @@ git push origin main
 4. **Configure Build Settings**
    - **Builder**: Select "Buildpack" (Koyeb will auto-detect PHP/Laravel)
    - **Build Command**: Leave empty (Koyeb will use default Laravel build)
-   - **Run Command**: `vendor/bin/heroku-php-apache2 public/`
-   - Or leave empty to use the Procfile
+   - **Run Command**: Leave empty to use the Procfile (which uses PHP's built-in server)
+   - The Procfile contains: `web: php -S 0.0.0.0:$PORT -t public public/server.php`
 
 5. **Set Environment Variables**
    
