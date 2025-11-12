@@ -54,53 +54,65 @@ In order to ensure that the Laravel community is welcoming to all, please review
 
 If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
-## Deploying to Vercel
+## Deployment
 
-This Laravel application is configured to deploy on Vercel using the `@vercel/php` runtime.
+### ⚠️ Important: Vercel PHP Support
 
-### Prerequisites
+**Vercel no longer supports PHP serverless functions.** The `@vercel/php` package is not available, so Laravel applications cannot be deployed directly to Vercel.
 
-- A Vercel account
+### Recommended: Deploy to Railway
+
+Railway is an excellent alternative that natively supports PHP and Laravel applications.
+
+#### Prerequisites
+
+- A Railway account (free tier available)
 - Your project pushed to GitHub
 
-### Deployment Steps
+#### Deployment Steps
 
 1. **Push your code to GitHub** (if not already done):
    ```bash
    git add .
-   git commit -m "Add Vercel deployment configuration"
+   git commit -m "Add Railway deployment configuration"
    git push
    ```
 
-2. **Import your project to Vercel**:
-   - Go to [Vercel Dashboard](https://vercel.com/dashboard)
+2. **Deploy to Railway**:
+   - Go to [Railway Dashboard](https://railway.app)
    - Click "New Project"
-   - Import your GitHub repository
-   - Vercel will automatically detect the configuration
+   - Select "Deploy from GitHub repo"
+   - Choose your repository
+   - Railway will automatically detect Laravel and configure it
 
 3. **Configure Environment Variables**:
-   In the Vercel project settings, add the following environment variables:
+   In the Railway project settings, add the following environment variables:
    - `APP_KEY` - Generate using `php artisan key:generate` (copy the key from your `.env` file)
-   - `APP_URL` - Your Vercel deployment URL (will be provided after first deployment)
-   - `DB_CONNECTION` - Database connection type (e.g., `sqlite`, `mysql`, `postgresql`)
+   - `APP_ENV` - Set to `production`
+   - `APP_DEBUG` - Set to `false`
+   - `DB_CONNECTION` - Database connection type
    - Add any other environment variables your application needs
 
-4. **Deploy**:
-   - Vercel will automatically build and deploy your application
-   - The build process will run `composer install` and the `vercel` script from `composer.json`
+4. **Add Database (if needed)**:
+   - In Railway, click "New" → "Database"
+   - Choose PostgreSQL or MySQL
+   - Railway will automatically provide connection variables
 
-### Important Notes
+5. **Deploy**:
+   - Railway will automatically build and deploy your application
+   - The build process uses the `railway.json` configuration
 
-- The `server.php` file handles routing and serves static assets
-- Cache files are stored in `/tmp` directory (serverless-friendly)
-- Make sure to set up your database connection properly in environment variables
-- Static assets (JS, CSS, images) are served directly from the `public` directory
+### Alternative Platforms
 
-### Files Added for Vercel
+- **Fly.io** - Great for Laravel with global edge deployment
+- **Render** - Simple deployment with PHP support
+- **Laravel Forge** - Official Laravel hosting platform
 
-- `vercel.json` - Vercel configuration
-- `server.php` - Entry point for serverless functions
-- `.vercelignore` - Files to exclude from deployment
+### Files Added for Deployment
+
+- `railway.json` - Railway configuration
+- `railway.toml` - Railway configuration (alternative format)
+- `.vercelignore` - Files to exclude from deployment (kept for reference)
 
 ## License
 
