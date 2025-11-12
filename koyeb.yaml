@@ -1,19 +1,19 @@
-# Koyeb Configuration
-# This file is optional - Koyeb will auto-detect Laravel/PHP
-# You can also configure everything through the Koyeb web interface
+Koyeb Configuration
+This file is optional - Koyeb will auto-detect Laravel/PHP
+You can also configure everything through the Koyeb web interface
 
-# For Laravel, Koyeb uses Heroku PHP buildpack which automatically:
-# - Detects PHP and installs dependencies via composer
-# - Detects Node.js and builds assets if package.json exists
-# - Configures Apache to serve from public/ directory
+For Laravel, Koyeb uses Heroku PHP buildpack which automatically:
+- Detects PHP and installs dependencies via composer
+- Detects Node.js and builds assets if package.json exists
+- Configures Apache to serve from public/ directory
 
-# The Procfile specifies: web: vendor/bin/heroku-php-apache2 public/
+The Procfile specifies: web: vendor/bin/heroku-php-apache2 public/
 
-# Environment variables should be set in Koyeb dashboard:
-# APP_ENV=production
-# APP_DEBUG=false
-# APP_KEY=base64:...
-# APP_URL=https://your-app.koyeb.app
-# LOG_CHANNEL=stderr
-# LOG_LEVEL=error
+Environment variables should be set in Koyeb dashboard:
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=base64:...
+APP_URL=https://mysterious-eleonora-minhajt-8556aa8e.koyeb.app/
+LOG_CHANNEL=stderr
+LOG_LEVEL=error
 
