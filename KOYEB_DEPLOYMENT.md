@@ -37,10 +37,21 @@ git push origin main
    - Click **"Continue"**
 
 4. **Configure Build Settings**
-   - **Builder**: Select "Buildpack" (Koyeb will auto-detect PHP/Laravel)
+
+   **Option A: Using Dockerfile (Recommended)**
+   - **Builder**: Select "Dockerfile"
+   - **Dockerfile Path**: `Dockerfile` (default)
+   - **Build Command**: Leave empty
+   - **Run Command**: Leave empty (Dockerfile handles this)
+   
+   **Option B: Using Buildpack**
+   - **Builder**: Select "Buildpack"
+   - **Buildpack**: Specify `heroku/php` or use `.buildpacks` file
    - **Build Command**: Leave empty (Koyeb will use default Laravel build)
-   - **Run Command**: Leave empty to use the Procfile (which uses PHP's built-in server)
+   - **Run Command**: Leave empty to use the Procfile
    - The Procfile contains: `web: php -S 0.0.0.0:$PORT -t public public/server.php`
+   
+   **Note**: If you get "php: command not found" errors, use Option A (Dockerfile) instead.
 
 5. **Set Environment Variables**
    
