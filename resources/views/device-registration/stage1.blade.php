@@ -19,6 +19,7 @@
                 value="{{ old('device_ip', $lanIpAddress) }}"
                 readonly
             >
+            <small style="color: #64748b; font-size: 0.85rem; display: block; margin-top: 0.25rem;">Auto-detected. If incorrect, please contact support.</small>
             @error('device_ip')
                 <p class="error">{{ $message }}</p>
             @enderror
@@ -31,8 +32,8 @@
                 name="device_name"
                 type="text"
                 value="{{ old('device_name', $deviceName) }}"
-                readonly
             >
+            <small style="color: #64748b; font-size: 0.85rem; display: block; margin-top: 0.25rem;">You can edit this if the auto-detected name is incorrect.</small>
             @error('device_name')
                 <p class="error">{{ $message }}</p>
             @enderror
@@ -49,6 +50,16 @@
         (function() {
             const deviceIpInput = document.getElementById('device_ip');
             const deviceNameInput = document.getElementById('device_name');
+            
+            // Function to check if IP is private
+            function isPrivateIP(ip) {
+                return ip.startsWith('192.168.') || 
+                       ip.startsWith('10.') || 
+                       (ip.startsWith('172.') && 
+                        parseInt(ip.split('.')[1]) >= 16 && 
+                        parseInt(ip.split('.')[1]) <= 31) ||
+                       ip.startsWith('169.254.'); // Link-local
+            }
             
             // Function to get local IP using WebRTC
             function getLocalIP() {
@@ -68,48 +79,60 @@
                     
                     pc.createDataChannel('');
                     
+                    const candidates = [];
+                    let foundPrivateIP = null;
+                    
                     pc.onicecandidate = (event) => {
                         if (event.candidate) {
                             const candidate = event.candidate.candidate;
                             const match = candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
                             if (match) {
                                 const ip = match[1];
-                                // Check if it's a private IP
-                                if (ip.startsWith('192.168.') || 
-                                    ip.startsWith('10.') || 
-                                    ip.startsWith('172.16.') || 
-                                    ip.startsWith('172.17.') || 
-                                    ip.startsWith('172.18.') || 
-                                    ip.startsWith('172.19.') || 
-                                    ip.startsWith('172.20.') || 
-                                    ip.startsWith('172.21.') || 
-                                    ip.startsWith('172.22.') || 
-                                    ip.startsWith('172.23.') || 
-                                    ip.startsWith('172.24.') || 
-                                    ip.startsWith('172.25.') || 
-                                    ip.startsWith('172.26.') || 
-                                    ip.startsWith('172.27.') || 
-                                    ip.startsWith('172.28.') || 
-                                    ip.startsWith('172.29.') || 
-                                    ip.startsWith('172.30.') || 
-                                    ip.startsWith('172.31.')) {
-                                    pc.close();
-                                    resolve(ip);
-                                    return;
+                                candidates.push(ip);
+                                
+                                // Prioritize private IPs - return immediately if found
+                                if (isPrivateIP(ip) && !foundPrivateIP) {
+                                    foundPrivateIP = ip;
+                                    // Don't close yet, wait for more candidates to ensure we have the best one
                                 }
+                            }
+                        } else {
+                            // No more candidates - process what we have
+                            pc.close();
+                            
+                            // First priority: private IPs
+                            const privateIPs = candidates.filter(ip => isPrivateIP(ip));
+                            if (privateIPs.length > 0) {
+                                // Return the first private IP found (usually the LAN IP)
+                                resolve(foundPrivateIP || privateIPs[0]);
+                            } else {
+                                // No private IP found
+                                resolve('');
                             }
                         }
                     };
                     
                     pc.createOffer()
                         .then(offer => pc.setLocalDescription(offer))
-                        .catch(() => resolve(''));
+                        .catch(() => {
+                            pc.close();
+                            resolve('');
+                        });
                     
-                    // Timeout after 3 seconds
+                    // Timeout after 5 seconds to give more time for candidates
                     setTimeout(() => {
-                        pc.close();
-                        resolve('');
-                    }, 3000);
+                        if (!pc.closed) {
+                            pc.close();
+                        }
+                        
+                        // Process collected candidates
+                        const privateIPs = candidates.filter(ip => isPrivateIP(ip));
+                        if (privateIPs.length > 0) {
+                            resolve(privateIPs[0]);
+                        } else {
+                            resolve('');
+                        }
+                    }, 5000);
                 });
             }
             
@@ -168,40 +191,46 @@
             
             // Initialize detection
             async function detectDeviceInfo() {
-                // Always try to get device name (will use stored value if available)
-                const deviceName = getDeviceName();
-                if (deviceName && (deviceNameInput.value === '' || !deviceNameInput.value)) {
-                    deviceNameInput.value = deviceName;
+                // Detect device name - only override if server didn't provide one
+                const serverDeviceName = deviceNameInput.value;
+                if (!serverDeviceName || serverDeviceName === '' || serverDeviceName === 'Device-' || serverDeviceName.includes('Chrome') || serverDeviceName.includes('Firefox')) {
+                    // Server didn't provide a valid name, use JavaScript detection
+                    const deviceName = getDeviceName();
+                    if (deviceName) {
+                        deviceNameInput.value = deviceName;
+                    }
                 }
                 
                 // Detect IP address
                 // If IP is already set and valid, check if we should override
                 const currentIP = deviceIpInput.value;
-                const shouldDetectIP = !currentIP || 
-                                      currentIP === '' || 
-                                      currentIP === '0.0.0.0' || 
-                                      currentIP === '127.0.0.1' ||
-                                      currentIP === 'Unable to detect';
                 
-                if (!shouldDetectIP) {
-                    return;
-                }
+                // Check if current IP is public (not a private LAN IP)
+                const isPublicIP = currentIP && 
+                                  currentIP !== '' && 
+                                  currentIP !== '0.0.0.0' && 
+                                  currentIP !== '127.0.0.1' &&
+                                  currentIP !== 'Unable to detect' &&
+                                  !isPrivateIP(currentIP);
                 
-                // Try to get local IP first (for LAN detection)
+                // Always try to get local LAN IP, even if we have a public IP
                 const localIP = await getLocalIP();
                 if (localIP) {
+                    // Found local LAN IP - use it instead of public IP
                     deviceIpInput.value = localIP;
                     return;
                 }
                 
-                // Fallback to public IP
-                const publicIP = await getPublicIP();
-                if (publicIP) {
-                    deviceIpInput.value = publicIP;
-                } else if (!deviceIpInput.value || deviceIpInput.value === '') {
-                    // Last resort: show message
-                    deviceIpInput.value = 'Unable to detect';
+                // If we don't have a valid IP yet, try public IP as fallback
+                if (!currentIP || currentIP === '' || currentIP === '0.0.0.0' || currentIP === '127.0.0.1' || currentIP === 'Unable to detect') {
+                    const publicIP = await getPublicIP();
+                    if (publicIP) {
+                        deviceIpInput.value = publicIP;
+                    } else {
+                        deviceIpInput.value = 'Unable to detect';
+                    }
                 }
+                // If we already have a public IP and no local IP found, keep the public IP
             }
             
             // Run detection when page loads

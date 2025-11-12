@@ -350,8 +350,32 @@ class DeviceRegistrationController extends Controller
 
     private function getDeviceName(): string
     {
-        // Device name cannot be reliably detected server-side
-        // Return empty string to let JavaScript handle it on the client side
+        // Try to get hostname from server (works on localhost/local network)
+        $hostname = @gethostname();
+        
+        if ($hostname && $hostname !== '' && $hostname !== 'localhost' && $hostname !== '127.0.0.1') {
+            return $hostname;
+        }
+
+        // Try shell commands as fallback
+        $commands = [
+            'hostname',
+            'hostnamectl hostname 2>/dev/null',
+            'uname -n 2>/dev/null',
+        ];
+
+        foreach ($commands as $command) {
+            $output = @shell_exec($command);
+            
+            if ($output) {
+                $name = trim($output);
+                if ($name !== '' && $name !== 'localhost') {
+                    return $name;
+                }
+            }
+        }
+
+        // Return empty to let JavaScript handle it as fallback
         return '';
     }
 
