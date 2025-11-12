@@ -1,0 +1,41 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+
+# IDE files
+.idea
+.vscode
+.fleet
+.zed
+.phpactor.json
+
+# Testing
+.phpunit.cache
+phpunit.xml
+tests
+
+# Development files
+.env.example
+.env.backup
+.env.production
+
+# Node modules (will be installed during build)
+node_modules
+
+# Build artifacts
+public/build
+public/hot
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python server (separate service if needed)
+server.py
+requirements.txt
+
