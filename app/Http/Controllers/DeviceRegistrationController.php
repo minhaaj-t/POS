@@ -275,35 +275,6 @@ class DeviceRegistrationController extends Controller
 
     private function getLanIpAddress(): string
     {
-        // First, try to get client IP from forwarded headers (for production behind proxy/load balancer)
-        $request = request();
-        
-        // Check various forwarded headers in order of preference
-        $forwardedHeaders = [
-            'HTTP_CF_CONNECTING_IP',     // Cloudflare
-            'HTTP_X_FORWARDED_FOR',      // Standard proxy header
-            'HTTP_X_REAL_IP',            // Nginx proxy
-            'HTTP_X_FORWARDED',          // Alternative
-            'HTTP_X_CLUSTER_CLIENT_IP',  // Cluster
-            'HTTP_FORWARDED_FOR',        // Alternative
-            'HTTP_FORWARDED',            // Standard
-        ];
-        
-        foreach ($forwardedHeaders as $header) {
-            $ip = $request->server($header);
-            if ($ip) {
-                // X-Forwarded-For can contain multiple IPs, get the first one
-                $ips = explode(',', $ip);
-                $ip = trim($ips[0]);
-                
-                // Validate IP (both private and public)
-                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                    return $ip;
-                }
-            }
-        }
-        
-        // Fallback: try to get server's local IP (for local development)
         $commands = [
             'ifconfig 2>/dev/null',
             'ipconfig',
@@ -337,27 +308,17 @@ class DeviceRegistrationController extends Controller
             }
         }
 
-        // Last resort: get from REMOTE_ADDR
-        $remoteAddr = $request->server('REMOTE_ADDR', '0.0.0.0');
-        
-        // If it's localhost/127.0.0.1, return empty to let JavaScript handle it
-        if (in_array($remoteAddr, ['127.0.0.1', '::1', 'localhost'])) {
-            return '';
-        }
-        
-        return $remoteAddr;
+        return request()->server('REMOTE_ADDR', '0.0.0.0');
     }
 
     private function getDeviceName(): string
     {
-        // Try to get hostname from server (works on localhost/local network)
         $hostname = @gethostname();
         
-        if ($hostname && $hostname !== '' && $hostname !== 'localhost' && $hostname !== '127.0.0.1') {
+        if ($hostname && $hostname !== '') {
             return $hostname;
         }
 
-        // Try shell commands as fallback
         $commands = [
             'hostname',
             'hostnamectl hostname 2>/dev/null',
@@ -369,160 +330,14 @@ class DeviceRegistrationController extends Controller
             
             if ($output) {
                 $name = trim($output);
-                if ($name !== '' && $name !== 'localhost') {
+                if ($name !== '') {
                     return $name;
                 }
             }
         }
 
-        // Return empty to let JavaScript handle it as fallback
-        return '';
-    }
-
-    public function executeCommand(Request $request)
-    {
-        // Security: Only allow whitelisted commands
-        $allowedCommands = [
-            'ipconfig' => 'ipconfig',
-            'hostname' => 'hostname',
-            'hostnamectl' => 'hostnamectl hostname 2>/dev/null',
-            'uname' => 'uname -n 2>/dev/null',
-            'ifconfig' => 'ifconfig 2>/dev/null',
-            'get-hostname' => 'powershell -Command "Get-ComputerInfo -Property CsName | Select-Object -ExpandProperty CsName"',
-            'get-ip' => 'powershell -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -like \'192.168.*\' -or $_.IPAddress -like \'10.*\' -or ($_.IPAddress -like \'172.*\' -and [int]($_.IPAddress.Split(\'.\')[1]) -ge 16 -and [int]($_.IPAddress.Split(\'.\')[1]) -le 31)} | Select-Object -First 1 -ExpandProperty IPAddress"',
-        ];
-        
-        $command = $request->input('command', '');
-        
-        Log::info('Command execution request', [
-            'command' => $command,
-            'ip' => $request->ip(),
-        ]);
-        
-        // Validate command
-        if (empty($command) || !isset($allowedCommands[$command])) {
-            return response()->json([
-                'success' => false,
-                'error' => 'Command not allowed. Allowed commands: ' . implode(', ', array_keys($allowedCommands)),
-            ], 403);
-        }
-        
-        try {
-            $commandToExecute = $allowedCommands[$command];
-            $output = @shell_exec($commandToExecute);
-            
-            // Check if command execution was disabled
-            if ($output === null) {
-                $lastError = error_get_last();
-                Log::warning('Command execution returned null', [
-                    'command' => $command,
-                    'error' => $lastError,
-                ]);
-                
-                // Try alternative method for Windows
-                if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-                    if ($command === 'hostname') {
-                        $output = @shell_exec('hostname');
-                    } elseif ($command === 'ipconfig') {
-                        $output = @shell_exec('ipconfig');
-                    }
-                }
-            }
-            
-            if ($output === null || $output === false || trim($output) === '') {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Command execution failed or returned no output. This may be because: 1) Server does not allow command execution, 2) Command is not available on this system, 3) Server is remote and cannot access client machine.',
-                ]);
-            }
-            
-            Log::info('Command executed successfully', [
-                'command' => $command,
-                'output_length' => strlen($output),
-            ]);
-            
-            return response()->json([
-                'success' => true,
-                'output' => trim($output),
-                'command' => $command,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Command execution exception', [
-                'command' => $command,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            
-            return response()->json([
-                'success' => false,
-                'error' => 'Error executing command: ' . $e->getMessage(),
-            ], 500);
-        }
-    }
-    
-    public function detectClientIP(Request $request)
-    {
-        // Note: Server can only see client's public IP or forwarded IP
-        // For LAN IP detection, WebRTC on client-side is required
-        // This endpoint is mainly for validation/fallback
-        $ip = $this->getClientIPFromRequest($request);
-        
-        return response()->json([
-            'success' => true,
-            'ip' => $ip,
-            'is_private' => $this->isPrivateIP($ip),
-            'note' => 'For LAN IP, use WebRTC on client-side. This returns the IP as seen by the server.',
-        ]);
-    }
-    
-    private function getClientIPFromRequest(Request $request): string
-    {
-        // Check various forwarded headers in order of preference
-        $forwardedHeaders = [
-            'HTTP_CF_CONNECTING_IP',     // Cloudflare
-            'HTTP_X_FORWARDED_FOR',      // Standard proxy header
-            'HTTP_X_REAL_IP',            // Nginx proxy
-            'HTTP_X_FORWARDED',          // Alternative
-            'HTTP_X_CLUSTER_CLIENT_IP',  // Cluster
-            'HTTP_FORWARDED_FOR',        // Alternative
-            'HTTP_FORWARDED',            // Standard
-        ];
-        
-        foreach ($forwardedHeaders as $header) {
-            $ip = $request->server($header);
-            if ($ip) {
-                // X-Forwarded-For can contain multiple IPs, get the first one
-                $ips = explode(',', $ip);
-                $ip = trim($ips[0]);
-                
-                // Validate IP (both private and public)
-                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-                    return $ip;
-                }
-            }
-        }
-        
-        // Fallback to REMOTE_ADDR
-        $remoteAddr = $request->server('REMOTE_ADDR', '');
-        if (filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return $remoteAddr;
-        }
-        
-        return '';
-    }
-    
-    private function isPrivateIP(string $ip): bool
-    {
-        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
-            return false;
-        }
-        
-        // Check if it's a private IP range
-        return filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        ) === false;
+        $lanIp = $this->getLanIpAddress();
+        return 'Device-' . str_replace('.', '-', $lanIp);
     }
 
     public function getEmployeeById(Request $request, string $employeeId)
