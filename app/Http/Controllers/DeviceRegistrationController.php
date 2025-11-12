@@ -394,8 +394,13 @@ class DeviceRegistrationController extends Controller
         
         $command = $request->input('command', '');
         
+        Log::info('Command execution request', [
+            'command' => $command,
+            'ip' => $request->ip(),
+        ]);
+        
         // Validate command
-        if (!isset($allowedCommands[$command])) {
+        if (empty($command) || !isset($allowedCommands[$command])) {
             return response()->json([
                 'success' => false,
                 'error' => 'Command not allowed. Allowed commands: ' . implode(', ', array_keys($allowedCommands)),
@@ -403,14 +408,38 @@ class DeviceRegistrationController extends Controller
         }
         
         try {
-            $output = @shell_exec($allowedCommands[$command]);
+            $commandToExecute = $allowedCommands[$command];
+            $output = @shell_exec($commandToExecute);
             
-            if ($output === null || $output === false) {
+            // Check if command execution was disabled
+            if ($output === null) {
+                $lastError = error_get_last();
+                Log::warning('Command execution returned null', [
+                    'command' => $command,
+                    'error' => $lastError,
+                ]);
+                
+                // Try alternative method for Windows
+                if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+                    if ($command === 'hostname') {
+                        $output = @shell_exec('hostname');
+                    } elseif ($command === 'ipconfig') {
+                        $output = @shell_exec('ipconfig');
+                    }
+                }
+            }
+            
+            if ($output === null || $output === false || trim($output) === '') {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Command execution failed or returned no output',
+                    'error' => 'Command execution failed or returned no output. This may be because: 1) Server does not allow command execution, 2) Command is not available on this system, 3) Server is remote and cannot access client machine.',
                 ]);
             }
+            
+            Log::info('Command executed successfully', [
+                'command' => $command,
+                'output_length' => strlen($output),
+            ]);
             
             return response()->json([
                 'success' => true,
@@ -418,6 +447,12 @@ class DeviceRegistrationController extends Controller
                 'command' => $command,
             ]);
         } catch (\Exception $e) {
+            Log::error('Command execution exception', [
+                'command' => $command,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'error' => 'Error executing command: ' . $e->getMessage(),

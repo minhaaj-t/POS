@@ -60,6 +60,7 @@
                 <div style="color: #4ec9b0;">Welcome to Device Detection Terminal</div>
                 <div style="margin-top: 0.5rem; color: #808080;">Type commands or click "Auto-Detect" to automatically detect IP and hostname.</div>
                 <div style="margin-top: 0.75rem; color: #808080;">Available commands: <span style="color: #4ec9b0;">hostname</span>, <span style="color: #4ec9b0;">ipconfig</span>, <span style="color: #4ec9b0;">get-hostname</span>, <span style="color: #4ec9b0;">get-ip</span></div>
+                <div style="margin-top: 0.75rem; color: #f48771; font-size: 0.85rem;">⚠ Note: Commands execute on the server. If the server is remote, this will show server info, not client info.</div>
                 <div id="terminal-content" style="margin-top: 1rem;"></div>
                 <div style="display: flex; align-items: center; margin-top: 1rem;">
                     <span style="color: #4ec9b0;">$</span>
@@ -334,15 +335,33 @@
             function executeCommand(command) {
                 addTerminalLine(`$ ${command}`, 'command');
                 
+                // Get CSRF token from meta tag or form
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
+                                 document.querySelector('input[name="_token"]')?.value || 
+                                 '{{ csrf_token() }}';
+                
+                const formData = new FormData();
+                formData.append('command', command);
+                formData.append('_token', csrfToken);
+                
                 fetch('{{ route("registration.execute.command") }}', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        'X-CSRF-TOKEN': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
                     },
-                    body: JSON.stringify({ command: command })
+                    body: formData,
+                    credentials: 'same-origin'
                 })
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => {
+                            throw new Error(err.error || `HTTP error! status: ${response.status}`);
+                        });
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
                         addTerminalLine(data.output);
@@ -378,11 +397,13 @@
                             }
                         }
                     } else {
-                        addTerminalLine(`Error: ${data.error}`, 'error');
+                        addTerminalLine(`Error: ${data.error || 'Unknown error'}`, 'error');
                     }
                 })
                 .catch(error => {
-                    addTerminalLine(`Error: ${error.message}`, 'error');
+                    console.error('Command execution error:', error);
+                    addTerminalLine(`Error: ${error.message || 'Failed to execute command. Please check your connection and try again.'}`, 'error');
+                    addTerminalLine('Note: Commands execute on the server. If server is remote, this may not work.', 'error');
                 });
             }
             
