@@ -1,16 +1,18 @@
-# Use PHP 8.2 with FPM for Laravel
-FROM php:8.2-fpm
+# Use PHP 8.2 CLI for Laravel (better for php artisan serve)
+# Note: PHP 8.2 is already installed in this base image - we don't need to install it via apt
+FROM php:8.2-cli
 
 # Set working directory
 WORKDIR /var/www/html
 
-# Install system dependencies
+# Install system dependencies (NOT PHP itself - PHP is already in the base image)
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
+    libzip-dev \
     zip \
     unzip \
     sqlite3 \
@@ -18,8 +20,8 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions
-RUN docker-php-ext-install pdo_mysql pdo_sqlite pdo_pgsql mbstring exif pcntl bcmath gd
+# Install PHP extensions using docker-php-ext-install (the correct way for PHP Docker images)
+RUN docker-php-ext-install pdo_mysql pdo_sqlite pdo_pgsql mbstring exif pcntl bcmath gd zip
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -27,10 +29,9 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Copy application files
 COPY . /var/www/html
 
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html/storage \
-    && chmod -R 755 /var/www/html/bootstrap/cache
+# Set permissions for Laravel storage and cache directories
+RUN chmod -R 775 /var/www/html/storage \
+    && chmod -R 775 /var/www/html/bootstrap/cache
 
 # Install dependencies
 RUN composer install --no-dev --optimize-autoloader --no-interaction
