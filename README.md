@@ -56,11 +56,58 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 
 ## Deployment
 
-### ⚠️ Important: Vercel PHP Support
+### Deploying to Vercel
 
-**Vercel no longer supports PHP serverless functions.** The `@vercel/php` package is not available, so Laravel applications cannot be deployed directly to Vercel.
+This Laravel application is configured to deploy on Vercel using the community-supported `vercel-php` runtime.
 
-### Recommended: Deploy to Railway
+#### Prerequisites
+
+- A Vercel account
+- Your project pushed to GitHub
+
+#### Deployment Steps
+
+1. **Push your code to GitHub** (if not already done):
+   ```bash
+   git add .
+   git commit -m "Add Vercel deployment configuration"
+   git push
+   ```
+
+2. **Import your project to Vercel**:
+   - Go to [Vercel Dashboard](https://vercel.com/dashboard)
+   - Click "New Project"
+   - Import your GitHub repository
+   - Vercel will automatically detect the configuration
+
+3. **Configure Environment Variables**:
+   In the Vercel project settings, add the following environment variables:
+   - `APP_KEY` - Generate using `php artisan key:generate` (copy the key from your `.env` file)
+   - `APP_URL` - Your Vercel deployment URL (will be provided after first deployment)
+   - `APP_ENV` - Set to `production`
+   - `APP_DEBUG` - Set to `false`
+   - `DB_CONNECTION` - Database connection type (e.g., `sqlite`, `mysql`, `postgresql`)
+   - Add any other environment variables your application needs
+
+4. **Deploy**:
+   - Vercel will automatically build and deploy your application
+   - The build process will run `composer install` and the `vercel` script from `composer.json`
+
+#### Important Notes
+
+- Uses the community-supported `vercel-php@0.7.4` runtime
+- Cache files are stored in `/tmp` directory (serverless-friendly)
+- Make sure to set up your database connection properly in environment variables
+- Static assets (JS, CSS, images) are served directly from the `public` directory
+- The `api/index.php` file handles routing and forwards requests to Laravel
+
+#### Files Added for Vercel
+
+- `vercel.json` - Vercel configuration with PHP runtime
+- `api/index.php` - Entry point for serverless functions
+- `.vercelignore` - Files to exclude from deployment
+
+### Alternative: Deploy to Railway
 
 Railway is an excellent alternative that natively supports PHP and Laravel applications.
 
