@@ -54,6 +54,23 @@ In order to ensure that the Laravel community is welcoming to all, please review
 
 If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
+## Deployment
+
+This application can be easily deployed to a live URL using GitHub integration with platforms like Render or Railway.
+
+### Quick Deploy to Render.com
+
+1. Sign up at [render.com](https://render.com) with your GitHub account
+2. Click "New +" → "Web Service"
+3. Connect your GitHub repository
+4. Render will auto-detect the `render.yaml` configuration
+5. Add environment variables (see `DEPLOYMENT.md` for details)
+6. Deploy!
+
+Your app will be live at: `https://your-app-name.onrender.com`
+
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
