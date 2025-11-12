@@ -54,6 +54,54 @@ In order to ensure that the Laravel community is welcoming to all, please review
 
 If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
+## Deploying to Vercel
+
+This Laravel application is configured to deploy on Vercel using the `@vercel/php` runtime.
+
+### Prerequisites
+
+- A Vercel account
+- Your project pushed to GitHub
+
+### Deployment Steps
+
+1. **Push your code to GitHub** (if not already done):
+   ```bash
+   git add .
+   git commit -m "Add Vercel deployment configuration"
+   git push
+   ```
+
+2. **Import your project to Vercel**:
+   - Go to [Vercel Dashboard](https://vercel.com/dashboard)
+   - Click "New Project"
+   - Import your GitHub repository
+   - Vercel will automatically detect the configuration
+
+3. **Configure Environment Variables**:
+   In the Vercel project settings, add the following environment variables:
+   - `APP_KEY` - Generate using `php artisan key:generate` (copy the key from your `.env` file)
+   - `APP_URL` - Your Vercel deployment URL (will be provided after first deployment)
+   - `DB_CONNECTION` - Database connection type (e.g., `sqlite`, `mysql`, `postgresql`)
+   - Add any other environment variables your application needs
+
+4. **Deploy**:
+   - Vercel will automatically build and deploy your application
+   - The build process will run `composer install` and the `vercel` script from `composer.json`
+
+### Important Notes
+
+- The `server.php` file handles routing and serves static assets
+- Cache files are stored in `/tmp` directory (serverless-friendly)
+- Make sure to set up your database connection properly in environment variables
+- Static assets (JS, CSS, images) are served directly from the `public` directory
+
+### Files Added for Vercel
+
+- `vercel.json` - Vercel configuration
+- `server.php` - Entry point for serverless functions
+- `.vercelignore` - Files to exclude from deployment
+
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
