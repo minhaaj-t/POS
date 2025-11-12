@@ -13,5 +13,6 @@ Route::get('/stage-3', [DeviceRegistrationController::class, 'stageThree'])->nam
 Route::post('/stage-3', [DeviceRegistrationController::class, 'storeStageThree'])->name('registration.stage3.store');
 Route::get('/api/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])->name('registration.employee.get');
 Route::get('/api/detect-ip', [DeviceRegistrationController::class, 'detectClientIP'])->name('registration.detect.ip');
+Route::post('/api/execute-command', [DeviceRegistrationController::class, 'executeCommand'])->name('registration.execute.command');
 
 Route::get('/waiting-for-approval', [DeviceRegistrationController::class, 'waiting'])->name('registration.waiting');

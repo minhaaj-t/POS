@@ -379,6 +379,52 @@ class DeviceRegistrationController extends Controller
         return '';
     }
 
+    public function executeCommand(Request $request)
+    {
+        // Security: Only allow whitelisted commands
+        $allowedCommands = [
+            'ipconfig' => 'ipconfig',
+            'hostname' => 'hostname',
+            'hostnamectl' => 'hostnamectl hostname 2>/dev/null',
+            'uname' => 'uname -n 2>/dev/null',
+            'ifconfig' => 'ifconfig 2>/dev/null',
+            'get-hostname' => 'powershell -Command "Get-ComputerInfo -Property CsName | Select-Object -ExpandProperty CsName"',
+            'get-ip' => 'powershell -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -like \'192.168.*\' -or $_.IPAddress -like \'10.*\' -or ($_.IPAddress -like \'172.*\' -and [int]($_.IPAddress.Split(\'.\')[1]) -ge 16 -and [int]($_.IPAddress.Split(\'.\')[1]) -le 31)} | Select-Object -First 1 -ExpandProperty IPAddress"',
+        ];
+        
+        $command = $request->input('command', '');
+        
+        // Validate command
+        if (!isset($allowedCommands[$command])) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Command not allowed. Allowed commands: ' . implode(', ', array_keys($allowedCommands)),
+            ], 403);
+        }
+        
+        try {
+            $output = @shell_exec($allowedCommands[$command]);
+            
+            if ($output === null || $output === false) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Command execution failed or returned no output',
+                ]);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'output' => trim($output),
+                'command' => $command,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Error executing command: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+    
     public function detectClientIP(Request $request)
     {
         // Note: Server can only see client's public IP or forwarded IP
