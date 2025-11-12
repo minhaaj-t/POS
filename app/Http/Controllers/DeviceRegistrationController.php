@@ -275,6 +275,35 @@ class DeviceRegistrationController extends Controller
 
     private function getLanIpAddress(): string
     {
+        // First, try to get client IP from forwarded headers (for production behind proxy/load balancer)
+        $request = request();
+        
+        // Check various forwarded headers in order of preference
+        $forwardedHeaders = [
+            'HTTP_CF_CONNECTING_IP',     // Cloudflare
+            'HTTP_X_FORWARDED_FOR',      // Standard proxy header
+            'HTTP_X_REAL_IP',            // Nginx proxy
+            'HTTP_X_FORWARDED',          // Alternative
+            'HTTP_X_CLUSTER_CLIENT_IP',  // Cluster
+            'HTTP_FORWARDED_FOR',        // Alternative
+            'HTTP_FORWARDED',            // Standard
+        ];
+        
+        foreach ($forwardedHeaders as $header) {
+            $ip = $request->server($header);
+            if ($ip) {
+                // X-Forwarded-For can contain multiple IPs, get the first one
+                $ips = explode(',', $ip);
+                $ip = trim($ips[0]);
+                
+                // Validate IP (both private and public)
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    return $ip;
+                }
+            }
+        }
+        
+        // Fallback: try to get server's local IP (for local development)
         $commands = [
             'ifconfig 2>/dev/null',
             'ipconfig',
@@ -308,36 +337,22 @@ class DeviceRegistrationController extends Controller
             }
         }
 
-        return request()->server('REMOTE_ADDR', '0.0.0.0');
+        // Last resort: get from REMOTE_ADDR
+        $remoteAddr = $request->server('REMOTE_ADDR', '0.0.0.0');
+        
+        // If it's localhost/127.0.0.1, return empty to let JavaScript handle it
+        if (in_array($remoteAddr, ['127.0.0.1', '::1', 'localhost'])) {
+            return '';
+        }
+        
+        return $remoteAddr;
     }
 
     private function getDeviceName(): string
     {
-        $hostname = @gethostname();
-        
-        if ($hostname && $hostname !== '') {
-            return $hostname;
-        }
-
-        $commands = [
-            'hostname',
-            'hostnamectl hostname 2>/dev/null',
-            'uname -n 2>/dev/null',
-        ];
-
-        foreach ($commands as $command) {
-            $output = @shell_exec($command);
-            
-            if ($output) {
-                $name = trim($output);
-                if ($name !== '') {
-                    return $name;
-                }
-            }
-        }
-
-        $lanIp = $this->getLanIpAddress();
-        return 'Device-' . str_replace('.', '-', $lanIp);
+        // Device name cannot be reliably detected server-side
+        // Return empty string to let JavaScript handle it on the client side
+        return '';
     }
 
     public function getEmployeeById(Request $request, string $employeeId)
