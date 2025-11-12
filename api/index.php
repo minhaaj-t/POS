@@ -5,6 +5,12 @@ use Illuminate\Http\Request;
 
 define('LARAVEL_START', microtime(true));
 
+// Detect Vercel environment
+if (!getenv('VERCEL') && getenv('VERCEL_ENV')) {
+    putenv('VERCEL=1');
+    $_ENV['VERCEL'] = '1';
+}
+
 // Set error reporting for debugging
 $debug = getenv('APP_DEBUG') === 'true' || getenv('APP_DEBUG') === '1';
 if ($debug) {
@@ -27,7 +33,9 @@ try {
 
     $request = Request::capture();
     $response = $app->handleRequest($request);
-    $response->send();
+    if ($response) {
+        $response->send();
+    }
     
 } catch (\Throwable $e) {
     // Log error details for debugging
