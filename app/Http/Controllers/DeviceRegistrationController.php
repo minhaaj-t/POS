@@ -379,6 +379,71 @@ class DeviceRegistrationController extends Controller
         return '';
     }
 
+    public function detectClientIP(Request $request)
+    {
+        // Note: Server can only see client's public IP or forwarded IP
+        // For LAN IP detection, WebRTC on client-side is required
+        // This endpoint is mainly for validation/fallback
+        $ip = $this->getClientIPFromRequest($request);
+        
+        return response()->json([
+            'success' => true,
+            'ip' => $ip,
+            'is_private' => $this->isPrivateIP($ip),
+            'note' => 'For LAN IP, use WebRTC on client-side. This returns the IP as seen by the server.',
+        ]);
+    }
+    
+    private function getClientIPFromRequest(Request $request): string
+    {
+        // Check various forwarded headers in order of preference
+        $forwardedHeaders = [
+            'HTTP_CF_CONNECTING_IP',     // Cloudflare
+            'HTTP_X_FORWARDED_FOR',      // Standard proxy header
+            'HTTP_X_REAL_IP',            // Nginx proxy
+            'HTTP_X_FORWARDED',          // Alternative
+            'HTTP_X_CLUSTER_CLIENT_IP',  // Cluster
+            'HTTP_FORWARDED_FOR',        // Alternative
+            'HTTP_FORWARDED',            // Standard
+        ];
+        
+        foreach ($forwardedHeaders as $header) {
+            $ip = $request->server($header);
+            if ($ip) {
+                // X-Forwarded-For can contain multiple IPs, get the first one
+                $ips = explode(',', $ip);
+                $ip = trim($ips[0]);
+                
+                // Validate IP (both private and public)
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    return $ip;
+                }
+            }
+        }
+        
+        // Fallback to REMOTE_ADDR
+        $remoteAddr = $request->server('REMOTE_ADDR', '');
+        if (filter_var($remoteAddr, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return $remoteAddr;
+        }
+        
+        return '';
+    }
+    
+    private function isPrivateIP(string $ip): bool
+    {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        
+        // Check if it's a private IP range
+        return filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        ) === false;
+    }
+
     public function getEmployeeById(Request $request, string $employeeId)
     {
         // Try to fetch from Python Oracle server first

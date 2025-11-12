@@ -26,14 +26,18 @@
         </div>
 
         <div>
-            <label for="device_name">Device Name</label>
+            <label for="device_name">Device Name <span style="color: #dc2626;">*</span></label>
             <input
                 id="device_name"
                 name="device_name"
                 type="text"
                 value="{{ old('device_name', $deviceName) }}"
+                placeholder="e.g., DESKTOP-3DVN5FM"
+                required
             >
-            <small style="color: #64748b; font-size: 0.85rem; display: block; margin-top: 0.25rem;">You can edit this if the auto-detected name is incorrect.</small>
+            <small style="color: #64748b; font-size: 0.85rem; display: block; margin-top: 0.25rem;">
+                Enter your Windows computer name (hostname). You can find it by running <code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">hostname</code> in Command Prompt.
+            </small>
             @error('device_name')
                 <p class="error">{{ $message }}</p>
             @enderror
@@ -53,6 +57,7 @@
             
             // Function to check if IP is private
             function isPrivateIP(ip) {
+                if (!ip || typeof ip !== 'string') return false;
                 return ip.startsWith('192.168.') || 
                        ip.startsWith('10.') || 
                        (ip.startsWith('172.') && 
@@ -61,8 +66,29 @@
                        ip.startsWith('169.254.'); // Link-local
             }
             
-            // Function to get local IP using WebRTC
-            function getLocalIP() {
+            // Function to check if a string is an IP address
+            function isIPAddress(str) {
+                if (!str || typeof str !== 'string') return false;
+                const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+                return ipRegex.test(str);
+            }
+            
+            // Function to get IP from server API (most reliable)
+            async function getIPFromServer() {
+                try {
+                    const response = await fetch('{{ route("registration.detect.ip") }}');
+                    const data = await response.json();
+                    if (data.success && data.ip) {
+                        return data.ip;
+                    }
+                } catch (error) {
+                    console.error('Failed to get IP from server:', error);
+                }
+                return '';
+            }
+            
+            // Function to get local IP using WebRTC (fallback method)
+            function getLocalIPWebRTC() {
                 return new Promise((resolve) => {
                     const RTCPeerConnection = window.RTCPeerConnection || 
                                              window.mozRTCPeerConnection || 
@@ -74,39 +100,46 @@
                     }
                     
                     const pc = new RTCPeerConnection({
-                        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun2.l.google.com:19302' }
+                        ]
                     });
                     
                     pc.createDataChannel('');
                     
                     const candidates = [];
-                    let foundPrivateIP = null;
+                    const seenIPs = new Set();
                     
                     pc.onicecandidate = (event) => {
                         if (event.candidate) {
                             const candidate = event.candidate.candidate;
-                            const match = candidate.match(/([0-9]{1,3}(\.[0-9]{1,3}){3})/);
-                            if (match) {
-                                const ip = match[1];
-                                candidates.push(ip);
-                                
-                                // Prioritize private IPs - return immediately if found
-                                if (isPrivateIP(ip) && !foundPrivateIP) {
-                                    foundPrivateIP = ip;
-                                    // Don't close yet, wait for more candidates to ensure we have the best one
+                            // Match host candidate (local IPs)
+                            const hostMatch = candidate.match(/host\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+                            if (hostMatch) {
+                                const ip = hostMatch[1];
+                                if (!seenIPs.has(ip)) {
+                                    seenIPs.add(ip);
+                                    candidates.push(ip);
                                 }
                             }
                         } else {
-                            // No more candidates - process what we have
+                            // No more candidates
                             pc.close();
                             
-                            // First priority: private IPs
-                            const privateIPs = candidates.filter(ip => isPrivateIP(ip));
+                            // Filter for private IPs only, exclude link-local
+                            const privateIPs = candidates.filter(ip => {
+                                return isPrivateIP(ip) && !ip.startsWith('169.254.');
+                            });
+                            
                             if (privateIPs.length > 0) {
-                                // Return the first private IP found (usually the LAN IP)
-                                resolve(foundPrivateIP || privateIPs[0]);
+                                // Prefer 192.168.x.x, then 10.x.x.x, then 172.x.x.x
+                                const preferred = privateIPs.find(ip => ip.startsWith('192.168.')) ||
+                                                privateIPs.find(ip => ip.startsWith('10.')) ||
+                                                privateIPs[0];
+                                resolve(preferred);
                             } else {
-                                // No private IP found
                                 resolve('');
                             }
                         }
@@ -119,67 +152,69 @@
                             resolve('');
                         });
                     
-                    // Timeout after 5 seconds to give more time for candidates
+                    // Timeout after 3 seconds
                     setTimeout(() => {
                         if (!pc.closed) {
                             pc.close();
                         }
                         
-                        // Process collected candidates
-                        const privateIPs = candidates.filter(ip => isPrivateIP(ip));
+                        const privateIPs = candidates.filter(ip => {
+                            return isPrivateIP(ip) && !ip.startsWith('169.254.');
+                        });
+                        
                         if (privateIPs.length > 0) {
-                            resolve(privateIPs[0]);
+                            const preferred = privateIPs.find(ip => ip.startsWith('192.168.')) ||
+                                            privateIPs.find(ip => ip.startsWith('10.')) ||
+                                            privateIPs[0];
+                            resolve(preferred);
                         } else {
                             resolve('');
                         }
-                    }, 5000);
+                    }, 3000);
                 });
             }
             
-            // Function to get public IP
-            function getPublicIP() {
-                return fetch('https://api.ipify.org?format=json')
-                    .then(response => response.json())
-                    .then(data => data.ip || '')
-                    .catch(() => '');
-            }
-            
-            // Function to get device name
+            // Function to get device name - ensure it's never an IP address
             function getDeviceName() {
                 // Check if we have a stored device name in localStorage
                 let deviceName = localStorage.getItem('device_name');
-                if (deviceName && deviceName !== '') {
+                
+                // Validate stored name - reject if it's an IP address
+                if (deviceName && deviceName !== '' && !isIPAddress(deviceName)) {
                     return deviceName;
                 }
                 
-                // Try to construct a meaningful device name
+                // Clear invalid stored name
+                if (isIPAddress(deviceName)) {
+                    localStorage.removeItem('device_name');
+                }
+                
+                // Try to get from server value if valid
+                const serverValue = deviceNameInput.value;
+                if (serverValue && serverValue !== '' && !isIPAddress(serverValue) && 
+                    !serverValue.includes('Chrome') && !serverValue.includes('Firefox') &&
+                    !serverValue.includes('Windows-')) {
+                    localStorage.setItem('device_name', serverValue);
+                    return serverValue;
+                }
+                
+                // Generate a device identifier based on browser fingerprint
                 const parts = [];
                 
-                // Get platform/OS info
-                if (navigator.userAgentData && navigator.userAgentData.platform) {
-                    parts.push(navigator.userAgentData.platform);
-                } else if (navigator.platform) {
-                    parts.push(navigator.platform.replace(/\s+/g, '-'));
+                // Get OS/platform info
+                const platform = navigator.platform || '';
+                if (platform && platform !== '') {
+                    parts.push(platform.replace(/\s+/g, '-'));
                 }
                 
-                // Get browser info
-                const ua = navigator.userAgent;
-                if (ua.includes('Chrome') && !ua.includes('Edg')) {
-                    parts.push('Chrome');
-                } else if (ua.includes('Firefox')) {
-                    parts.push('Firefox');
-                } else if (ua.includes('Safari') && !ua.includes('Chrome')) {
-                    parts.push('Safari');
-                } else if (ua.includes('Edg')) {
-                    parts.push('Edge');
-                }
+                // Add a unique identifier based on screen resolution and timezone
+                const screenInfo = `${screen.width}x${screen.height}`;
+                const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+                const hash = btoa(screenInfo + timezone + navigator.language).substring(0, 6).replace(/[^a-zA-Z0-9]/g, '');
                 
-                // If we have parts, join them
                 if (parts.length > 0) {
-                    deviceName = parts.join('-');
+                    deviceName = parts.join('-') + '-' + hash;
                 } else {
-                    // Last resort: use a generic name with a short hash
-                    const hash = Math.random().toString(36).substring(2, 8);
                     deviceName = 'Device-' + hash;
                 }
                 
@@ -191,46 +226,47 @@
             
             // Initialize detection
             async function detectDeviceInfo() {
-                // Detect device name - only override if server didn't provide one
-                const serverDeviceName = deviceNameInput.value;
-                if (!serverDeviceName || serverDeviceName === '' || serverDeviceName === 'Device-' || serverDeviceName.includes('Chrome') || serverDeviceName.includes('Firefox')) {
-                    // Server didn't provide a valid name, use JavaScript detection
+                // Detect IP address - WebRTC is primary method for LAN IP
+                const currentIP = deviceIpInput.value;
+                const shouldDetectIP = !currentIP || 
+                                      currentIP === '' || 
+                                      currentIP === '0.0.0.0' || 
+                                      currentIP === '127.0.0.1' ||
+                                      currentIP === 'Unable to detect' ||
+                                      !isPrivateIP(currentIP);
+                
+                if (shouldDetectIP) {
+                    // WebRTC is the primary method for detecting LAN IP
+                    const localIP = await getLocalIPWebRTC();
+                    if (localIP) {
+                        deviceIpInput.value = localIP;
+                    } else {
+                        // Fallback to server API (may return public IP)
+                        const serverIP = await getIPFromServer();
+                        if (serverIP) {
+                            deviceIpInput.value = serverIP;
+                        } else if (!deviceIpInput.value || deviceIpInput.value === '') {
+                            deviceIpInput.value = 'Unable to detect';
+                        }
+                    }
+                }
+                
+                // Detect device name - ensure it's never an IP address
+                const currentDeviceName = deviceNameInput.value;
+                
+                // If current value is an IP address or invalid, replace it
+                if (isIPAddress(currentDeviceName) || 
+                    !currentDeviceName || 
+                    currentDeviceName === '' || 
+                    currentDeviceName.includes('Chrome') || 
+                    currentDeviceName.includes('Firefox') ||
+                    (currentDeviceName.includes('Windows-') && currentDeviceName.split('-').length === 2)) {
+                    
                     const deviceName = getDeviceName();
                     if (deviceName) {
                         deviceNameInput.value = deviceName;
                     }
                 }
-                
-                // Detect IP address
-                // If IP is already set and valid, check if we should override
-                const currentIP = deviceIpInput.value;
-                
-                // Check if current IP is public (not a private LAN IP)
-                const isPublicIP = currentIP && 
-                                  currentIP !== '' && 
-                                  currentIP !== '0.0.0.0' && 
-                                  currentIP !== '127.0.0.1' &&
-                                  currentIP !== 'Unable to detect' &&
-                                  !isPrivateIP(currentIP);
-                
-                // Always try to get local LAN IP, even if we have a public IP
-                const localIP = await getLocalIP();
-                if (localIP) {
-                    // Found local LAN IP - use it instead of public IP
-                    deviceIpInput.value = localIP;
-                    return;
-                }
-                
-                // If we don't have a valid IP yet, try public IP as fallback
-                if (!currentIP || currentIP === '' || currentIP === '0.0.0.0' || currentIP === '127.0.0.1' || currentIP === 'Unable to detect') {
-                    const publicIP = await getPublicIP();
-                    if (publicIP) {
-                        deviceIpInput.value = publicIP;
-                    } else {
-                        deviceIpInput.value = 'Unable to detect';
-                    }
-                }
-                // If we already have a public IP and no local IP found, keep the public IP
             }
             
             // Run detection when page loads
