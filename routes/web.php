@@ -12,5 +12,6 @@ Route::post('/stage-2', [DeviceRegistrationController::class, 'storeStageTwo'])-
 Route::get('/stage-3', [DeviceRegistrationController::class, 'stageThree'])->name('registration.stage3');
 Route::post('/stage-3', [DeviceRegistrationController::class, 'storeStageThree'])->name('registration.stage3.store');
 Route::get('/api/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])->name('registration.employee.get');
+Route::get('/api/batch-file-status', [DeviceRegistrationController::class, 'checkBatchFileStatus'])->name('registration.batchfile.status');
 
 Route::get('/waiting-for-approval', [DeviceRegistrationController::class, 'waiting'])->name('registration.waiting');
