@@ -13,19 +13,26 @@ class DeviceRegistrationController extends Controller
 {
     public function stageOne(Request $request): View
     {
-        $lanIp = $this->getLanIpAddress();
-        $deviceName = $this->getDeviceName();
+        // Check if user has already submitted and confirmed stage 1
+        $stage1Data = $request->session()->get('registration.stage1');
+        $alreadySubmitted = isset($stage1Data['confirmed']) && $stage1Data['confirmed'] === true;
 
-        $request->session()->put('registration.stage1', [
-            'device_ip' => $lanIp,
-            'device_name' => $deviceName,
-        ]);
+        if ($alreadySubmitted && isset($stage1Data['device_ip']) && isset($stage1Data['device_name'])) {
+            // Use session data if already submitted and confirmed
+            $lanIp = $stage1Data['device_ip'];
+            $deviceName = $stage1Data['device_name'];
+        } else {
+            // Detect IP and device name for first time or if not confirmed yet
+            $lanIp = $this->getLanIpAddress();
+            $deviceName = $this->getDeviceName();
+        }
 
         return view('device-registration.stage1', [
             'lanIpAddress' => $lanIp,
             'deviceName' => $deviceName,
             'stages' => $this->stages(),
             'currentStage' => 1,
+            'alreadySubmitted' => $alreadySubmitted,
         ]);
     }
 
@@ -36,6 +43,8 @@ class DeviceRegistrationController extends Controller
             'device_name' => ['required', 'string', 'max:255'],
         ]);
 
+        // Mark as confirmed when user submits the form
+        $data['confirmed'] = true;
         $request->session()->put('registration.stage1', $data);
 
         return redirect()->route('registration.stage2');
