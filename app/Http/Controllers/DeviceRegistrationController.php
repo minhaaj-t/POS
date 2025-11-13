@@ -21,57 +21,11 @@ class DeviceRegistrationController extends Controller
             'device_name' => $deviceName,
         ]);
 
-        // Check batch file status
-        $statusFile = base_path('device-monitor.status');
-        $batchFileRunning = false;
-        $batchFileError = null;
-        
-        if (file_exists($statusFile)) {
-            $content = @file_get_contents($statusFile);
-            if ($content !== false) {
-                $lines = explode("\n", trim($content));
-                $statusData = [];
-                foreach ($lines as $line) {
-                    if (strpos($line, '=') !== false) {
-                        [$key, $value] = explode('=', $line, 2);
-                        $statusData[trim($key)] = trim($value);
-                    }
-                }
-                
-                if (isset($statusData['RUNNING']) && $statusData['RUNNING'] === 'RUNNING') {
-                    $lastUpdate = $statusData['TIMESTAMP'] ?? null;
-                    if ($lastUpdate) {
-                        try {
-                            $timestamp = strtotime($lastUpdate);
-                            $currentTime = time();
-                            $timeDiff = $currentTime - $timestamp;
-                            
-                            if ($timeDiff <= 120) {
-                                $batchFileRunning = true;
-                            } else {
-                                $batchFileError = 'Batch file status is stale. Please restart device-monitor.bat';
-                            }
-                        } catch (\Exception $e) {
-                            $batchFileRunning = true; // Assume running if timestamp parsing fails
-                        }
-                    } else {
-                        $batchFileRunning = true;
-                    }
-                } else {
-                    $batchFileError = 'Batch file is not running properly';
-                }
-            }
-        } else {
-            $batchFileError = 'Batch file is not running. Please run device-monitor.bat in background.';
-        }
-
         return view('device-registration.stage1', [
             'lanIpAddress' => $lanIp,
             'deviceName' => $deviceName,
             'stages' => $this->stages(),
             'currentStage' => 1,
-            'batchFileRunning' => $batchFileRunning,
-            'batchFileError' => $batchFileError,
         ]);
     }
 
@@ -418,78 +372,6 @@ class DeviceRegistrationController extends Controller
             'success' => false,
             'message' => 'Employee service unavailable. Please ensure the Python Oracle server is running.',
         ], 503);
-    }
-
-    /**
-     * Check if the device monitor batch file is running
-     */
-    public function checkBatchFileStatus(Request $request)
-    {
-        $statusFile = base_path('device-monitor.status');
-        $isRunning = false;
-        $status = 'OFFLINE';
-        $lastUpdate = null;
-        $error = null;
-
-        if (file_exists($statusFile)) {
-            // Read status file
-            $content = @file_get_contents($statusFile);
-            
-            if ($content !== false) {
-                // Parse status file
-                $lines = explode("\n", trim($content));
-                $statusData = [];
-                
-                foreach ($lines as $line) {
-                    if (strpos($line, '=') !== false) {
-                        [$key, $value] = explode('=', $line, 2);
-                        $statusData[trim($key)] = trim($value);
-                    }
-                }
-                
-                // Check if status is RUNNING
-                if (isset($statusData['RUNNING']) && $statusData['RUNNING'] === 'RUNNING') {
-                    $isRunning = true;
-                    $status = $statusData['STATUS'] ?? 'UNKNOWN';
-                    $lastUpdate = $statusData['TIMESTAMP'] ?? null;
-                    
-                    // Check if timestamp is recent (within last 2 minutes)
-                    if ($lastUpdate) {
-                        try {
-                            // Parse timestamp (format: MM/DD/YYYY HH:MM:SS)
-                            $timestamp = strtotime($lastUpdate);
-                            $currentTime = time();
-                            $timeDiff = $currentTime - $timestamp;
-                            
-                            // If last update is more than 2 minutes ago, consider it not running
-                            if ($timeDiff > 120) {
-                                $isRunning = false;
-                                $error = 'Batch file status is stale (last update: ' . $lastUpdate . ')';
-                            }
-                        } catch (\Exception $e) {
-                            // If timestamp parsing fails, still consider it running if file exists
-                            Log::warning("Failed to parse timestamp from status file", [
-                                'timestamp' => $lastUpdate,
-                                'error' => $e->getMessage(),
-                            ]);
-                        }
-                    }
-                } else {
-                    $error = 'Batch file status file exists but does not indicate running state';
-                }
-            } else {
-                $error = 'Cannot read status file';
-            }
-        } else {
-            $error = 'Batch file status file not found. Please ensure device-monitor.bat is running in background.';
-        }
-
-        return response()->json([
-            'running' => $isRunning,
-            'status' => $status,
-            'last_update' => $lastUpdate,
-            'error' => $error,
-        ]);
     }
 
     /**
