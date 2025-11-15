@@ -1,13 +1,22 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import socket
 import platform
 import subprocess
 import re
 import os
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app)  # Allow Laravel/website to call this API
+
+# Add request logging
+@app.before_request
+def log_request_info():
+    """Log incoming requests for debugging"""
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {request.method} {request.path}")
+    if request.args:
+        print(f"  Query params: {request.args}")
 
 def get_device_name():
     """Get the device/hostname name"""
@@ -171,6 +180,22 @@ def get_lan_ip_endpoint():
             'message': f'Error getting LAN IP: {str(e)}'
         }), 500
 
+@app.route('/', methods=['GET'])
+def root():
+    """Root endpoint - provides API information"""
+    return jsonify({
+        'service': 'local-server',
+        'version': '1.0.0',
+        'endpoints': {
+            '/api/server-info': 'Get both device name and LAN IP address',
+            '/api/device-name': 'Get device name only',
+            '/api/lan-ip': 'Get LAN IP address only',
+            '/health': 'Health check endpoint'
+        },
+        'device_name': get_device_name(),
+        'lan_ip': get_lan_ip_address()
+    })
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
@@ -181,18 +206,40 @@ def health():
         'lan_ip': get_lan_ip_address()
     })
 
+@app.errorhandler(404)
+def not_found(error):
+    """Handle 404 errors with helpful message"""
+    return jsonify({
+        'success': False,
+        'error': 'Not Found',
+        'message': 'The requested URL was not found on the server.',
+        'available_endpoints': [
+            '/',
+            '/api/server-info',
+            '/api/device-name',
+            '/api/lan-ip',
+            '/health'
+        ]
+    }), 404
+
 if __name__ == '__main__':
     port = int(os.environ.get('LOCAL_SERVER_PORT', 5001))
     host = os.environ.get('LOCAL_SERVER_HOST', '0.0.0.0')
     
+    print(f"=" * 60)
     print(f"Starting Local Server on {host}:{port}")
     print(f"Device Name: {get_device_name()}")
     print(f"LAN IP: {get_lan_ip_address()}")
+    print(f"=" * 60)
     print(f"API Endpoints:")
-    print(f"  - GET /api/server-info - Get both device name and LAN IP")
-    print(f"  - GET /api/device-name - Get device name only")
-    print(f"  - GET /api/lan-ip - Get LAN IP only")
-    print(f"  - GET /health - Health check")
+    print(f"  - GET http://localhost:{port}/ - API information")
+    print(f"  - GET http://localhost:{port}/api/server-info - Get both device name and LAN IP")
+    print(f"  - GET http://localhost:{port}/api/device-name - Get device name only")
+    print(f"  - GET http://localhost:{port}/api/lan-ip - Get LAN IP only")
+    print(f"  - GET http://localhost:{port}/health - Health check")
+    print(f"=" * 60)
+    print(f"Server is running. Press Ctrl+C to stop.")
+    print(f"=" * 60)
     
     app.run(host=host, port=port, debug=True)
 

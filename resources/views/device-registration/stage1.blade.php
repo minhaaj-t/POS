@@ -193,33 +193,53 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                // Short timeout for local server
             });
 
             if (response.ok) {
                 const data = await response.json();
-                if (data.success) {
-                    if (data.lan_ip && (!currentIp || currentIp === '0.0.0.0' || currentIp === '')) {
+                console.log('Local server response:', data);
+                
+                // Check if we got valid data (either success:true or direct properties)
+                if (data.success || (data.lan_ip && data.device_name)) {
+                    // ALWAYS override with local server data (it's the most accurate source)
+                    // This fixes cases where server-side PHP got wrong values
+                    if (data.lan_ip && data.lan_ip !== '127.0.0.1' && data.lan_ip !== '0.0.0.0') {
                         deviceIpInput.value = data.lan_ip;
                         deviceIpInput.style.color = '#1c1d21';
                         console.log('✓ LAN IP fetched from local server:', data.lan_ip);
+                    } else {
+                        console.warn('Local server returned invalid IP:', data.lan_ip);
                     }
                     
-                    if (data.device_name && (!currentName || currentName === '')) {
+                    if (data.device_name && !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(data.device_name)) {
+                        // Only update if device_name is not an IP address
                         deviceNameInput.value = data.device_name;
                         deviceNameInput.style.color = '#1c1d21';
                         console.log('✓ Device name fetched from local server:', data.device_name);
+                    } else {
+                        console.warn('Local server returned invalid device name (looks like IP):', data.device_name);
                     }
                     
                     serverInfoFetched = true;
+                } else {
+                    console.warn('Local server returned invalid data structure:', data);
                 }
+            } else {
+                console.warn('Local server returned status:', response.status, response.statusText);
             }
         } catch (e) {
             console.log('Local server not available, using browser detection methods:', e.message);
         }
 
-        // If local server didn't provide the info, use browser methods
-        if (!serverInfoFetched || !deviceIpInput.value || deviceIpInput.value === 'Detecting LAN IP...' || deviceIpInput.value === '0.0.0.0') {
+        // If local server didn't provide the info, use browser methods as fallback
+        // Only use fallback if server didn't fetch OR if we still have placeholder/default values
+        const needsIpFallback = !serverInfoFetched || 
+                                 !deviceIpInput.value || 
+                                 deviceIpInput.value === 'Detecting LAN IP...' || 
+                                 deviceIpInput.value === '0.0.0.0' ||
+                                 deviceIpInput.value === '127.0.0.1';
+        
+        if (needsIpFallback) {
             // Check if we have permission API (for local network access)
             if ('permissions' in navigator) {
                 try {
@@ -263,8 +283,13 @@
             }
         }
 
-        // Get device name from browser if not already set
-        if (!deviceNameInput.value || deviceNameInput.value === 'Detecting device name...') {
+        // Get device name from browser if not already set from local server
+        const needsNameFallback = !serverInfoFetched || 
+                                   !deviceNameInput.value || 
+                                   deviceNameInput.value === 'Detecting device name...' ||
+                                   /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(deviceNameInput.value); // If it's an IP, it's wrong
+        
+        if (needsNameFallback) {
             const deviceName = getDeviceName();
             if (deviceName) {
                 deviceNameInput.value = deviceName;

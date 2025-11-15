@@ -22,9 +22,23 @@ class DeviceRegistrationController extends Controller
             $lanIp = $stage1Data['device_ip'];
             $deviceName = $stage1Data['device_name'];
         } else {
-            // Detect IP and device name for first time or if not confirmed yet
+            // Always try to get fresh data from local server first
+            // This ensures we get the most accurate information
             $lanIp = $this->getLanIpAddress();
             $deviceName = $this->getDeviceName();
+            
+            // Validate that we got reasonable values
+            // If device name looks like an IP, it's wrong - try again
+            if (filter_var($deviceName, FILTER_VALIDATE_IP)) {
+                Log::warning("Device name appears to be an IP address, retrying...", ['value' => $deviceName]);
+                $deviceName = $this->getDeviceName();
+            }
+            
+            // If IP is localhost, try again
+            if ($lanIp === '127.0.0.1' || $lanIp === '0.0.0.0') {
+                Log::warning("LAN IP is localhost or invalid, retrying...", ['ip' => $lanIp]);
+                $lanIp = $this->getLanIpAddress();
+            }
         }
 
         return view('device-registration.stage1', [
