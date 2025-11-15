@@ -161,6 +161,99 @@ Railway is an excellent alternative that natively supports PHP and Laravel appli
 - `railway.toml` - Railway configuration (alternative format)
 - `.vercelignore` - Files to exclude from deployment (kept for reference)
 
+## Local Server
+
+The application includes a local Python server (`local-server.py`) that provides device information (device name and LAN IP address) to the web application.
+
+### Features
+
+- **Device Name Detection**: Automatically detects the computer's hostname/device name
+- **LAN IP Address Detection**: Detects the local network IP address (192.168.x.x, 10.x.x.x, etc.)
+- **RESTful API**: Provides JSON endpoints for easy integration
+- **Cross-Platform**: Works on Windows, Linux, and macOS
+
+### Running the Local Server
+
+#### Option 1: Using the Batch File (Windows)
+```bash
+start-local-server.bat
+```
+
+#### Option 2: Using Python Directly
+```bash
+python local-server.py
+```
+
+The server will start on `http://localhost:5001` by default.
+
+### API Endpoints
+
+- `GET /api/server-info` - Get both device name and LAN IP address
+  ```json
+  {
+    "success": true,
+    "device_name": "DESKTOP-3DVN5FM",
+    "lan_ip": "192.168.61.55",
+    "platform": "Windows",
+    "platform_release": "10"
+  }
+  ```
+
+- `GET /api/device-name` - Get device name only
+  ```json
+  {
+    "success": true,
+    "device_name": "DESKTOP-3DVN5FM"
+  }
+  ```
+
+- `GET /api/lan-ip` - Get LAN IP address only
+  ```json
+  {
+    "success": true,
+    "lan_ip": "192.168.61.55"
+  }
+  ```
+
+- `GET /health` - Health check endpoint
+
+### Configuration
+
+You can configure the server using environment variables:
+
+- `LOCAL_SERVER_PORT` - Port to run on (default: 5001)
+- `LOCAL_SERVER_HOST` - Host to bind to (default: 0.0.0.0)
+
+Example:
+```bash
+set LOCAL_SERVER_PORT=8080
+python local-server.py
+```
+
+### Integration with Laravel
+
+The Laravel application automatically tries to fetch device information from the local server. Configure the server URL in your `.env` file:
+
+```env
+LOCAL_SERVER_URL=http://localhost:5001
+```
+
+If the local server is not available, the application will fall back to:
+- Server-side detection methods (PHP functions)
+- Browser-based WebRTC detection (client-side)
+
+### Dependencies
+
+The local server requires:
+- Python 3.6+
+- Flask (`pip install flask`)
+- flask-cors (`pip install flask-cors`)
+
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).

@@ -168,36 +168,6 @@
     async function detectNetworkInfo() {
         console.log('Starting network detection...');
         
-        // Check if we have permission API (for local network access)
-        if ('permissions' in navigator) {
-            try {
-                // Request local network access permission
-                // Note: This API may not be available in all browsers
-                const permissionStatus = await navigator.permissions.query({ 
-                    name: 'local-network-access' 
-                }).catch(() => null);
-                
-                if (permissionStatus) {
-                    console.log('Local network access permission state:', permissionStatus.state);
-                    
-                    if (permissionStatus.state === 'prompt') {
-                        // Permission can be requested
-                        console.log('Local network access permission available - user will be prompted');
-                    } else if (permissionStatus.state === 'granted') {
-                        console.log('Local network access permission already granted');
-                    } else if (permissionStatus.state === 'denied') {
-                        console.log('Local network access permission denied - using WebRTC fallback');
-                    }
-                }
-            } catch (e) {
-                // Permission API might not support local-network-access
-                // This is normal - we'll use WebRTC as fallback
-                console.log('Local network access permission API not available, using WebRTC fallback');
-            }
-        } else {
-            console.log('Permissions API not available, using WebRTC for IP detection');
-        }
-
         // Show loading state only if fields are empty or have default values
         const currentIp = deviceIpInput.value.trim();
         const currentName = deviceNameInput.value.trim();
@@ -212,33 +182,96 @@
             deviceNameInput.style.color = '#64748b';
         }
 
-        // Get local IP address using WebRTC
-        const localIP = await getLocalIPAddress();
-        if (localIP) {
-            deviceIpInput.value = localIP;
-            deviceIpInput.style.color = '#1c1d21';
-            console.log('✓ Detected LAN IP:', localIP);
-        } else {
-            console.warn('⚠ Could not detect local IP address via WebRTC');
-            // Restore original value if detection failed
-            if (deviceIpInput.value === 'Detecting LAN IP...') {
+        // Try to fetch from local server first (default: http://localhost:5001)
+        const localServerUrl = 'http://localhost:5001';
+        let serverInfoFetched = false;
+
+        try {
+            console.log('Attempting to fetch from local server...');
+            const response = await fetch(`${localServerUrl}/api/server-info`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                // Short timeout for local server
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    if (data.lan_ip && (!currentIp || currentIp === '0.0.0.0' || currentIp === '')) {
+                        deviceIpInput.value = data.lan_ip;
+                        deviceIpInput.style.color = '#1c1d21';
+                        console.log('✓ LAN IP fetched from local server:', data.lan_ip);
+                    }
+                    
+                    if (data.device_name && (!currentName || currentName === '')) {
+                        deviceNameInput.value = data.device_name;
+                        deviceNameInput.style.color = '#1c1d21';
+                        console.log('✓ Device name fetched from local server:', data.device_name);
+                    }
+                    
+                    serverInfoFetched = true;
+                }
+            }
+        } catch (e) {
+            console.log('Local server not available, using browser detection methods:', e.message);
+        }
+
+        // If local server didn't provide the info, use browser methods
+        if (!serverInfoFetched || !deviceIpInput.value || deviceIpInput.value === 'Detecting LAN IP...' || deviceIpInput.value === '0.0.0.0') {
+            // Check if we have permission API (for local network access)
+            if ('permissions' in navigator) {
+                try {
+                    // Request local network access permission
+                    // Note: This API may not be available in all browsers
+                    const permissionStatus = await navigator.permissions.query({ 
+                        name: 'local-network-access' 
+                    }).catch(() => null);
+                    
+                    if (permissionStatus) {
+                        console.log('Local network access permission state:', permissionStatus.state);
+                        
+                        if (permissionStatus.state === 'prompt') {
+                            // Permission can be requested
+                            console.log('Local network access permission available - user will be prompted');
+                        } else if (permissionStatus.state === 'granted') {
+                            console.log('Local network access permission already granted');
+                        } else if (permissionStatus.state === 'denied') {
+                            console.log('Local network access permission denied - using WebRTC fallback');
+                        }
+                    }
+                } catch (e) {
+                    // Permission API might not support local-network-access
+                    // This is normal - we'll use WebRTC as fallback
+                    console.log('Local network access permission API not available, using WebRTC fallback');
+                }
+            } else {
+                console.log('Permissions API not available, using WebRTC for IP detection');
+            }
+
+            // Get local IP address using WebRTC
+            const localIP = await getLocalIPAddress();
+            if (localIP && (deviceIpInput.value === 'Detecting LAN IP...' || deviceIpInput.value === '0.0.0.0' || deviceIpInput.value === '')) {
+                deviceIpInput.value = localIP;
+                deviceIpInput.style.color = '#1c1d21';
+                console.log('✓ Detected LAN IP via WebRTC:', localIP);
+            } else if (!localIP && deviceIpInput.value === 'Detecting LAN IP...') {
+                console.warn('⚠ Could not detect local IP address via WebRTC');
                 deviceIpInput.value = currentIp || '0.0.0.0';
                 deviceIpInput.style.color = '#dc2626';
             }
         }
 
-        // Get device name
-        const deviceName = getDeviceName();
-        if (deviceName) {
-            // Only update if we were detecting or field was empty
-            if (!currentName || deviceNameInput.value === 'Detecting device name...') {
+        // Get device name from browser if not already set
+        if (!deviceNameInput.value || deviceNameInput.value === 'Detecting device name...') {
+            const deviceName = getDeviceName();
+            if (deviceName) {
                 deviceNameInput.value = deviceName;
                 deviceNameInput.style.color = '#1c1d21';
-                console.log('✓ Detected device name:', deviceName);
-            }
-        } else {
-            console.warn('⚠ Could not detect device name');
-            if (deviceNameInput.value === 'Detecting device name...') {
+                console.log('✓ Detected device name from browser:', deviceName);
+            } else {
+                console.warn('⚠ Could not detect device name');
                 deviceNameInput.value = currentName || 'Unknown-Device';
                 deviceNameInput.style.color = '#dc2626';
             }

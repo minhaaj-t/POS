@@ -284,6 +284,28 @@ class DeviceRegistrationController extends Controller
 
     private function getLanIpAddress(): string
     {
+        // Try to fetch from local server first
+        $localServerUrl = env('LOCAL_SERVER_URL', 'http://localhost:5001');
+        
+        try {
+            $response = Http::timeout(2)->get("{$localServerUrl}/api/lan-ip");
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                if (($data['success'] ?? false) && isset($data['lan_ip'])) {
+                    $ip = $data['lan_ip'];
+                    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                        Log::info("LAN IP fetched from local server", ['ip' => $ip]);
+                        return $ip;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Log but continue to fallback methods
+            Log::debug("Local server unavailable for IP detection, using fallback: " . $e->getMessage());
+        }
+
+        // Fallback to original methods
         $commands = [
             'ifconfig 2>/dev/null',
             'ipconfig',
@@ -322,6 +344,28 @@ class DeviceRegistrationController extends Controller
 
     private function getDeviceName(): string
     {
+        // Try to fetch from local server first
+        $localServerUrl = env('LOCAL_SERVER_URL', 'http://localhost:5001');
+        
+        try {
+            $response = Http::timeout(2)->get("{$localServerUrl}/api/device-name");
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                if (($data['success'] ?? false) && isset($data['device_name'])) {
+                    $deviceName = trim($data['device_name']);
+                    if ($deviceName !== '') {
+                        Log::info("Device name fetched from local server", ['device_name' => $deviceName]);
+                        return $deviceName;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Log but continue to fallback methods
+            Log::debug("Local server unavailable for device name detection, using fallback: " . $e->getMessage());
+        }
+
+        // Fallback to original methods
         $hostname = @gethostname();
         
         if ($hostname && $hostname !== '') {
