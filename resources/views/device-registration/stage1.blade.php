@@ -50,3 +50,208 @@
     </form>
 @endsection
 
+@section('scripts')
+<script>
+(function() {
+    const deviceIpInput = document.getElementById('device_ip');
+    const deviceNameInput = document.getElementById('device_name');
+    
+    if (!deviceIpInput || !deviceNameInput) {
+        return;
+    }
+
+    // Function to get local IP address using WebRTC
+    async function getLocalIPAddress() {
+        return new Promise((resolve) => {
+            const RTCPeerConnection = window.RTCPeerConnection || 
+                                     window.mozRTCPeerConnection || 
+                                     window.webkitRTCPeerConnection;
+            
+            if (!RTCPeerConnection) {
+                resolve(null);
+                return;
+            }
+
+            const pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+
+            const ips = [];
+            const regex = /([0-9]{1,3}(\.[0-9]{1,3}){3}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7})/g;
+
+            pc.createDataChannel('');
+            
+            pc.onicecandidate = (event) => {
+                if (!event || !event.candidate) {
+                    pc.close();
+                    // Filter for private IP addresses
+                    const privateIPs = ips.filter(ip => {
+                        return /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip) ||
+                               ip === '127.0.0.1' || ip.startsWith('169.254.');
+                    });
+                    resolve(privateIPs.length > 0 ? privateIPs[0] : (ips.length > 0 ? ips[0] : null));
+                    return;
+                }
+                
+                const candidate = event.candidate.candidate;
+                const match = regex.exec(candidate);
+                if (match) {
+                    const ip = match[1];
+                    if (ips.indexOf(ip) === -1) {
+                        ips.push(ip);
+                    }
+                }
+                regex.lastIndex = 0;
+            };
+
+            pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .catch(err => {
+                    console.error('Error creating offer:', err);
+                    resolve(null);
+                });
+
+            // Timeout after 3 seconds
+            setTimeout(() => {
+                pc.close();
+                const privateIPs = ips.filter(ip => {
+                    return /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(ip) ||
+                           ip === '127.0.0.1' || ip.startsWith('169.254.');
+                });
+                resolve(privateIPs.length > 0 ? privateIPs[0] : (ips.length > 0 ? ips[0] : null));
+            }, 3000);
+        });
+    }
+
+    // Function to get device name
+    function getDeviceName() {
+        // Try to get hostname from window.location (if accessing via local network)
+        const hostname = window.location.hostname;
+        if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('.')) {
+            // If hostname is a simple name (not an IP), use it
+            return hostname;
+        }
+        
+        // Try to extract from user agent for more specific device info
+        const ua = navigator.userAgent;
+        let deviceType = 'Device';
+        
+        if (ua.includes('Windows NT 10.0')) {
+            deviceType = 'Windows10';
+        } else if (ua.includes('Windows NT 6.3')) {
+            deviceType = 'Windows8.1';
+        } else if (ua.includes('Windows NT 6.2')) {
+            deviceType = 'Windows8';
+        } else if (ua.includes('Windows NT 6.1')) {
+            deviceType = 'Windows7';
+        } else if (ua.includes('Mac OS X')) {
+            deviceType = 'MacOS';
+        } else if (ua.includes('Linux')) {
+            deviceType = 'Linux';
+        } else if (ua.includes('Android')) {
+            deviceType = 'Android';
+        } else if (ua.includes('iPhone') || ua.includes('iPad')) {
+            deviceType = 'iOS';
+        }
+        
+        // Try to get platform info
+        const platform = navigator.platform || '';
+        const platformInfo = platform ? `-${platform.replace(/\s+/g, '')}` : '';
+        
+        // Use screen resolution as part of identifier if available
+        const screenInfo = window.screen ? `-${window.screen.width}x${window.screen.height}` : '';
+        
+        return `${deviceType}${platformInfo}${screenInfo}`;
+    }
+
+    // Request local network access permission and detect IP
+    async function detectNetworkInfo() {
+        console.log('Starting network detection...');
+        
+        // Check if we have permission API (for local network access)
+        if ('permissions' in navigator) {
+            try {
+                // Request local network access permission
+                // Note: This API may not be available in all browsers
+                const permissionStatus = await navigator.permissions.query({ 
+                    name: 'local-network-access' 
+                }).catch(() => null);
+                
+                if (permissionStatus) {
+                    console.log('Local network access permission state:', permissionStatus.state);
+                    
+                    if (permissionStatus.state === 'prompt') {
+                        // Permission can be requested
+                        console.log('Local network access permission available - user will be prompted');
+                    } else if (permissionStatus.state === 'granted') {
+                        console.log('Local network access permission already granted');
+                    } else if (permissionStatus.state === 'denied') {
+                        console.log('Local network access permission denied - using WebRTC fallback');
+                    }
+                }
+            } catch (e) {
+                // Permission API might not support local-network-access
+                // This is normal - we'll use WebRTC as fallback
+                console.log('Local network access permission API not available, using WebRTC fallback');
+            }
+        } else {
+            console.log('Permissions API not available, using WebRTC for IP detection');
+        }
+
+        // Show loading state only if fields are empty or have default values
+        const currentIp = deviceIpInput.value.trim();
+        const currentName = deviceNameInput.value.trim();
+        
+        if (!currentIp || currentIp === '0.0.0.0' || currentIp === '') {
+            deviceIpInput.value = 'Detecting LAN IP...';
+            deviceIpInput.style.color = '#64748b';
+        }
+        
+        if (!currentName || currentName === '') {
+            deviceNameInput.value = 'Detecting device name...';
+            deviceNameInput.style.color = '#64748b';
+        }
+
+        // Get local IP address using WebRTC
+        const localIP = await getLocalIPAddress();
+        if (localIP) {
+            deviceIpInput.value = localIP;
+            deviceIpInput.style.color = '#1c1d21';
+            console.log('✓ Detected LAN IP:', localIP);
+        } else {
+            console.warn('⚠ Could not detect local IP address via WebRTC');
+            // Restore original value if detection failed
+            if (deviceIpInput.value === 'Detecting LAN IP...') {
+                deviceIpInput.value = currentIp || '0.0.0.0';
+                deviceIpInput.style.color = '#dc2626';
+            }
+        }
+
+        // Get device name
+        const deviceName = getDeviceName();
+        if (deviceName) {
+            // Only update if we were detecting or field was empty
+            if (!currentName || deviceNameInput.value === 'Detecting device name...') {
+                deviceNameInput.value = deviceName;
+                deviceNameInput.style.color = '#1c1d21';
+                console.log('✓ Detected device name:', deviceName);
+            }
+        } else {
+            console.warn('⚠ Could not detect device name');
+            if (deviceNameInput.value === 'Detecting device name...') {
+                deviceNameInput.value = currentName || 'Unknown-Device';
+                deviceNameInput.style.color = '#dc2626';
+            }
+        }
+    }
+
+    // Run detection when page loads
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', detectNetworkInfo);
+    } else {
+        detectNetworkInfo();
+    }
+})();
+</script>
+@endsection
+
