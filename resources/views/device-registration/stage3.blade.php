@@ -109,18 +109,42 @@
                 const url = `{{ route('registration.employee.get', ['employeeId' => '__ID__']) }}`.replace('__ID__', encodeURIComponent(employeeId));
                 console.log('API URL:', url);
                 
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                    },
-                });
+                // Add timeout to fetch request
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+                
+                let response;
+                try {
+                    response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                        },
+                        signal: controller.signal,
+                    });
+                    clearTimeout(timeoutId);
+                } catch (fetchError) {
+                    clearTimeout(timeoutId);
+                    if (fetchError.name === 'AbortError') {
+                        throw new Error('Request timeout. Please check your connection and try again.');
+                    } else if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
+                        throw new Error('Network error. Please check your connection and ensure the server is accessible.');
+                    }
+                    throw fetchError;
+                }
                 
                 console.log('Response status:', response.status);
+                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
                 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    let errorData;
+                    try {
+                        const text = await response.text();
+                        errorData = text ? JSON.parse(text) : { message: 'Unknown error' };
+                    } catch (parseError) {
+                        errorData = { message: `HTTP Error ${response.status}: ${response.statusText}` };
+                    }
                     console.error('HTTP error:', response.status, response.statusText, errorData);
                     
                     employeeNameContainer.style.display = 'none';
@@ -133,7 +157,14 @@
                     return;
                 }
                 
-                const data = await response.json();
+                let data;
+                try {
+                    const text = await response.text();
+                    data = text ? JSON.parse(text) : {};
+                } catch (parseError) {
+                    console.error('Failed to parse JSON response:', parseError);
+                    throw new Error('Invalid response format from server.');
+                }
                 console.log('Response data:', data);
 
                 if (data.success || data.found) {
@@ -157,11 +188,20 @@
                 }
             } catch (error) {
                 console.error('Error fetching employee data:', error);
+                console.error('Error details:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
                 employeeNameContainer.style.display = 'none';
                 usernameInput.value = '';
                 
-                // Show error message
-                employeeErrorText.textContent = 'Failed to fetch employee data. Please check your connection and try again.';
+                // Show error message with more details
+                let errorMessage = 'Failed to fetch employee data. Please check your connection and try again.';
+                if (error.message) {
+                    errorMessage += ` (${error.message})`;
+                }
+                employeeErrorText.textContent = errorMessage;
                 employeeErrorContainer.style.display = 'block';
             }
         };
