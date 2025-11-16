@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Http;
 
 Route::get('/', [DeviceRegistrationController::class, 'stageOne'])->name('registration.stage1');
+Route::get('/stage-1', [DeviceRegistrationController::class, 'stageOne'])->name('registration.stage1.get');
 Route::post('/stage-1', [DeviceRegistrationController::class, 'storeStageOne'])->name('registration.stage1.store');
 
 Route::get('/stage-2', [DeviceRegistrationController::class, 'stageTwo'])->name('registration.stage2');
