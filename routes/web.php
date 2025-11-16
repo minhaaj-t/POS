@@ -12,7 +12,10 @@ Route::post('/stage-2', [DeviceRegistrationController::class, 'storeStageTwo'])-
 
 Route::get('/stage-3', [DeviceRegistrationController::class, 'stageThree'])->name('registration.stage3');
 Route::post('/stage-3', [DeviceRegistrationController::class, 'storeStageThree'])->name('registration.stage3.store');
-Route::get('/api/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])->name('registration.employee.get')->where('employeeId', '[0-9]+');
+// Employee API route - allow numeric employee IDs
+Route::get('/api/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])
+    ->name('registration.employee.get')
+    ->where('employeeId', '[0-9]+');
 Route::options('/api/employee/{employeeId}', function () {
     return response()->json([])
         ->header('Access-Control-Allow-Origin', '*')
@@ -53,3 +56,8 @@ Route::get('/test-api/employee/{employeeId}', function ($employeeId) {
         ], 500);
     }
 })->where('employeeId', '[0-9]+');
+
+// Test route to verify the employee route is accessible
+Route::get('/test-route/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])
+    ->name('test.employee.get')
+    ->where('employeeId', '[0-9]+');
