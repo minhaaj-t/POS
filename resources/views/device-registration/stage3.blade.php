@@ -106,7 +106,12 @@
 
             try {
                 console.log('Fetching employee data for ID:', employeeId);
-                const url = `{{ route('registration.employee.get', ['employeeId' => '__ID__']) }}`.replace('__ID__', encodeURIComponent(employeeId));
+                // Get the route URL and ensure it uses HTTPS if page is loaded over HTTPS
+                let url = `{{ route('registration.employee.get', ['employeeId' => '__ID__']) }}`.replace('__ID__', encodeURIComponent(employeeId));
+                // Force HTTPS if page is loaded over HTTPS (fixes mixed content issue)
+                if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+                    url = url.replace('http://', 'https://');
+                }
                 console.log('API URL:', url);
                 
                 // Add timeout to fetch request
