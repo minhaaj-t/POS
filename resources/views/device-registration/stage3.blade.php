@@ -94,7 +94,12 @@
             }
 
             try {
-                const response = await fetch(`{{ route('registration.employee.get', ['employeeId' => '__ID__']) }}`.replace('__ID__', encodeURIComponent(employeeId)));
+                console.log('Fetching employee data for ID:', employeeId);
+                const url = `{{ route('registration.employee.get', ['employeeId' => '__ID__']) }}`.replace('__ID__', encodeURIComponent(employeeId));
+                console.log('API URL:', url);
+                
+                const response = await fetch(url);
+                console.log('Response status:', response.status);
                 
                 if (!response.ok) {
                     console.error('HTTP error:', response.status, response.statusText);
@@ -104,13 +109,16 @@
                 }
                 
                 const data = await response.json();
-                console.log('Employee data response:', data);
+                console.log('Response data:', data);
 
-                if (data.success && data.employee && data.employee.name) {
-                    employeeNameText.textContent = data.employee.name;
+                if (data.success) {
+                    const employeeName = data.employee?.name || data.name || 'Unknown';
+                    const username = data.username || employeeId;
+                    
+                    employeeNameText.textContent = employeeName;
                     employeeNameContainer.style.display = 'block';
-                    usernameInput.value = data.username || employeeId; // Username = EMPLOYEECODE
-                    console.log('✓ Employee data loaded:', data.employee.name);
+                    usernameInput.value = username;
+                    console.log('Employee data loaded:', { name: employeeName, username: username });
                 } else {
                     console.warn('Employee not found or invalid response:', data);
                     employeeNameContainer.style.display = 'none';

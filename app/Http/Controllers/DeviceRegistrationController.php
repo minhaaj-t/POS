@@ -22,18 +22,22 @@ class DeviceRegistrationController extends Controller
             $lanIp = $stage1Data['device_ip'];
             $deviceName = $stage1Data['device_name'];
         } else {
-            // Get fresh data from local server or fallback methods
+            // Always try to get fresh data from local server first
+            // This ensures we get the most accurate information
             $lanIp = $this->getLanIpAddress();
             $deviceName = $this->getDeviceName();
             
-            // Validate device name (should not be an IP address)
+            // Validate that we got reasonable values
+            // If device name looks like an IP, it's wrong - try again
             if (filter_var($deviceName, FILTER_VALIDATE_IP)) {
-                Log::warning("Device name appears to be an IP address", ['value' => $deviceName]);
+                Log::warning("Device name appears to be an IP address, retrying...", ['value' => $deviceName]);
+                $deviceName = $this->getDeviceName();
             }
             
-            // Validate IP (should not be localhost)
+            // If IP is localhost, try again
             if ($lanIp === '127.0.0.1' || $lanIp === '0.0.0.0') {
-                Log::warning("LAN IP is localhost or invalid", ['ip' => $lanIp]);
+                Log::warning("LAN IP is localhost or invalid, retrying...", ['ip' => $lanIp]);
+                $lanIp = $this->getLanIpAddress();
             }
         }
 
@@ -170,26 +174,11 @@ class DeviceRegistrationController extends Controller
 
         $data = $request->validate([
             'outlet_name' => ['required', 'string', 'max:255'],
-            'manager_name' => ['nullable', 'string', 'max:255'],
+            'manager_name' => ['required', 'string', 'max:255'],
             'address' => ['required', 'string', 'max:500'],
         ]);
 
         $request->session()->put('registration.stage3', $data);
-
-        // Store registration data in RPOS_LOGIN table
-        $registrationResult = $this->storeRegistrationInDatabase($request);
-        
-        if (!$registrationResult['success']) {
-            Log::error("Failed to store registration in database", [
-                'error' => $registrationResult['message'] ?? 'Unknown error',
-            ]);
-            // Continue to waiting page even if database insert fails
-            // The admin can manually approve later
-        } else {
-            Log::info("Registration data stored successfully in RPOS_LOGIN", [
-                'device_id' => $registrationResult['device_id'] ?? 'N/A',
-            ]);
-        }
 
         return redirect()->route('registration.waiting');
     }
@@ -203,14 +192,42 @@ class DeviceRegistrationController extends Controller
         
         try {
             // Production server uses /api/user/<employee_code> instead of /api/employees/<employee_id>
-            $response = Http::timeout(5)->get("{$pythonServerUrl}/api/user/{$employeeId}");
+            // Disable SSL verification for localtunnel URLs (self-signed certificates)
+            $url = "{$pythonServerUrl}/api/user/{$employeeId}";
+            
+            Log::info("Fetching employee data", [
+                'employee_id' => $employeeId,
+                'url' => $url,
+            ]);
+            
+            $response = Http::timeout(10)
+                ->withoutVerifying() // Disable SSL verification for localtunnel
+                ->get($url);
+            
+            Log::info("Employee API response received", [
+                'employee_id' => $employeeId,
+                'status' => $response->status(),
+                'successful' => $response->successful(),
+            ]);
             
             if ($response->successful()) {
                 $data = $response->json();
                 
-                $isValid = ($data['found'] ?? false) || ($data['success'] ?? false);
+                Log::info("Employee API response data", [
+                    'employee_id' => $employeeId,
+                    'response' => $data,
+                ]);
+                
+                // Handle different response formats
+                // Production API might use 'found' instead of 'success'
+                // Format 1: {success: true, password: "...", location_code: ...}
+                // Format 2: {found: true, password: "...", location_code: ...}
+                // Format 3: {success: true, user: {...}, password: "...", location_code: ...}
+                
+                $isValid = ($data['success'] ?? false) || ($data['found'] ?? false);
                 
                 if ($isValid) {
+                    // Try different possible locations for password and location_code
                     $dbPassword = $data['password'] 
                         ?? $data['user']['password'] 
                         ?? $data['data']['password'] 
@@ -222,6 +239,12 @@ class DeviceRegistrationController extends Controller
                         ?? $data['locationCode']
                         ?? null;
                     
+                    Log::info("Employee data parsed successfully", [
+                        'employee_id' => $employeeId,
+                        'has_password' => $dbPassword !== null,
+                        'location_code' => $locationCode,
+                    ]);
+                    
                     // Compare passwords (case-sensitive)
                     $valid = $dbPassword !== null && $dbPassword === $enteredPassword;
                     
@@ -229,12 +252,32 @@ class DeviceRegistrationController extends Controller
                         'valid' => $valid,
                         'location_code' => $locationCode,
                     ];
+                } else {
+                    Log::warning("Employee fetch returned unsuccessful", [
+                        'employee_id' => $employeeId,
+                        'success' => $data['success'] ?? null,
+                        'found' => $data['found'] ?? null,
+                        'response' => $data,
+                    ]);
                 }
+            } else {
+                Log::warning("Employee fetch HTTP error", [
+                    'employee_id' => $employeeId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
             }
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::error("Employee API connection exception", [
+                'employee_id' => $employeeId,
+                'error' => $e->getMessage(),
+                'url' => $url ?? 'unknown',
+            ]);
         } catch (\Exception $e) {
             Log::error("Employee validation exception", [
                 'employee_id' => $employeeId,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
         }
         
@@ -248,85 +291,72 @@ class DeviceRegistrationController extends Controller
     {
         $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
         
-        // Try production API endpoint first (singular)
-        $endpoints = [
-            "{$pythonServerUrl}/api/location/{$locationCode}",  // Production API format
-            "{$pythonServerUrl}/api/locations/{$locationCode}", // Fallback (local server format)
-        ];
-        
-        foreach ($endpoints as $endpoint) {
-            try {
-                $response = Http::timeout(5)->get($endpoint);
+        try {
+            // Production server uses /api/location/<location_code> instead of /api/locations/<location_code>
+            // Disable SSL verification for localtunnel URLs
+            $url = "{$pythonServerUrl}/api/location/{$locationCode}";
+            
+            $response = Http::timeout(10)
+                ->withoutVerifying() // Disable SSL verification for localtunnel
+                ->get($url);
+            
+            if ($response->successful()) {
+                $data = $response->json();
                 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    $isValid = ($data['found'] ?? false) || ($data['success'] ?? false);
+                Log::info("Location API response", [
+                    'location_code' => $locationCode,
+                    'response' => $data,
+                ]);
+                
+                if ($data['success'] ?? false) {
+                    // Handle different response formats
+                    // Format 1: {success: true, location: {...}}
+                    // Format 2: {success: true, data: {...}}
+                    $location = $data['location'] 
+                        ?? $data['data'] 
+                        ?? null;
                     
-                    if ($isValid) {
-                        $location = $data['location'] 
-                            ?? $data['data']
-                            ?? (isset($data['location_name']) || isset($data['locationName']) ? $data : null)
-                            ?? null;
-                        
-                        if ($location) {
-                            Log::info("Location details retrieved", [
-                                'location_code' => $locationCode,
-                                'location_name' => $location['location_name'] ?? $location['locationName'] ?? 'N/A',
-                            ]);
-                            return $location;
-                        }
+                    if ($location) {
+                        Log::info("Location details retrieved successfully", [
+                            'location_code' => $locationCode,
+                            'location_name' => $location['location_name'] ?? $location['locationName'] ?? 'N/A',
+                        ]);
                     }
+                    
+                    return $location;
+                } else {
+                    Log::warning("Location fetch returned unsuccessful", [
+                        'location_code' => $locationCode,
+                        'response' => $data,
+                    ]);
                 }
-            } catch (\Exception $e) {
-                // Try next endpoint
-                continue;
+            } else {
+                Log::warning("Location fetch HTTP error", [
+                    'location_code' => $locationCode,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
             }
+        } catch (\Exception $e) {
+            Log::error("Location fetch exception", [
+                'location_code' => $locationCode,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
         }
         
         return null;
     }
 
-    public function waiting(Request $request): View|RedirectResponse|\Illuminate\Http\JsonResponse
+    public function waiting(Request $request): View|RedirectResponse
     {
         if (! $request->session()->has('registration.credentials')) {
             return redirect()->route('registration.stage1');
         }
 
-        // Get device information from session to check approval status
-        $stage1Data = $request->session()->get('registration.stage1', []);
-        $stage2Data = $request->session()->get('registration.stage2', []);
-        
-        $deviceId = $request->input('device_id') ?? $stage1Data['device_name'] ?? null;
-        $employeeId = $request->input('employee_id') ?? $stage2Data['employee_id'] ?? null;
-        
-        // If this is an AJAX request for status check, return JSON
-        if ($request->input('check_status') == '1' || $request->wantsJson()) {
-            $approvalStatus = null;
-            if ($deviceId) {
-                $approvalStatus = $this->checkApprovalStatus($deviceId, $employeeId);
-            }
-            
-            return response()->json([
-                'approved' => $approvalStatus === 'Y',
-                'approval_flag' => $approvalStatus,
-                'device_id' => $deviceId,
-                'employee_id' => $employeeId,
-            ]);
-        }
-        
-        // Check approval status for regular page load
-        $approvalStatus = null;
-        if ($deviceId && $employeeId) {
-            $approvalStatus = $this->checkApprovalStatus($deviceId, $employeeId);
-        }
-
         return view('device-registration.waiting', [
             'stages' => $this->stages(),
             'currentStage' => 4,
-            'isApproved' => $approvalStatus === 'Y',
-            'approvalStatus' => $approvalStatus,
-            'stage1Data' => $stage1Data,
-            'stage2Data' => $stage2Data,
         ]);
     }
 
@@ -448,35 +478,102 @@ class DeviceRegistrationController extends Controller
         
         try {
             // Production server uses /api/user/<employee_code> instead of /api/employees/<employee_id>
-            $response = Http::timeout(3)->get("{$pythonServerUrl}/api/user/{$employeeId}");
+            // Disable SSL verification for localtunnel URLs
+            $url = "{$pythonServerUrl}/api/user/{$employeeId}";
+            
+            Log::info("Fetching employee by ID", [
+                'employee_id' => $employeeId,
+                'url' => $url,
+            ]);
+            
+            $response = Http::timeout(10)
+                ->withoutVerifying() // Disable SSL verification for localtunnel
+                ->get($url);
+            
+            Log::info("Employee by ID response received", [
+                'employee_id' => $employeeId,
+                'status' => $response->status(),
+                'successful' => $response->successful(),
+            ]);
             
             if ($response->successful()) {
                 $data = $response->json();
                 
-                if (($data['found'] ?? false) || ($data['success'] ?? false)) {
+                Log::info("Employee by ID response data", [
+                    'employee_id' => $employeeId,
+                    'response' => $data,
+                ]);
+                
+                // Handle both 'success' and 'found' response formats
+                $isValid = ($data['success'] ?? false) || ($data['found'] ?? false);
+                
+                if ($isValid) {
+                    // Normalize response for frontend compatibility
+                    // Frontend expects: {success: true, employee: {id: "...", name: "..."}, username: "..."}
                     $normalizedData = [
                         'success' => true,
                         'employee' => [
-                            'id' => $data['employee_id'] ?? $data['id'] ?? $employeeId,
-                            'name' => $data['name'] ?? $data['employee']['name'] ?? '',
+                            'id' => $data['employee_id'] 
+                                ?? $data['id'] 
+                                ?? $data['employee']['id'] 
+                                ?? $employeeId,
+                            'name' => $data['name'] 
+                                ?? $data['employee']['name'] 
+                                ?? $data['user']['name']
+                                ?? $data['username']
+                                ?? '',
                         ],
-                        'username' => $data['username'] ?? $data['employee_id'] ?? $employeeId,
+                        'username' => $data['username'] 
+                            ?? $data['employee_id'] 
+                            ?? $data['id']
+                            ?? $employeeId,
                     ];
                     
+                    // Include additional fields if present
+                    if (isset($data['password'])) {
+                        $normalizedData['password'] = $data['password'];
+                    }
                     if (isset($data['location_code'])) {
                         $normalizedData['location_code'] = $data['location_code'];
                     }
-                    if (isset($data['counter'])) {
-                        $normalizedData['counter'] = $data['counter'];
+                    if (isset($data['locationCode'])) {
+                        $normalizedData['location_code'] = $data['locationCode'];
                     }
                     
+                    Log::info("Normalized employee data for frontend", [
+                        'employee_id' => $employeeId,
+                        'normalized' => $normalizedData,
+                    ]);
+                    
                     return response()->json($normalizedData);
+                } else {
+                    Log::warning("Employee not found in API response", [
+                        'employee_id' => $employeeId,
+                        'response' => $data,
+                    ]);
                 }
+            } else {
+                Log::warning("Employee by ID HTTP error", [
+                    'employee_id' => $employeeId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
             }
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            Log::error("Employee API connection exception", [
+                'employee_id' => $employeeId,
+                'error' => $e->getMessage(),
+                'url' => $url ?? 'unknown',
+            ]);
         } catch (\Exception $e) {
-            Log::warning("Employee service unavailable: " . $e->getMessage());
+            Log::error("Employee API exception", [
+                'employee_id' => $employeeId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
         }
         
+        // Return error if Python server is unavailable
         return $this->getEmployeeByIdFallback($employeeId);
     }
     
@@ -489,167 +586,6 @@ class DeviceRegistrationController extends Controller
             'success' => false,
             'message' => 'Employee service unavailable. Please ensure the Python Oracle server is running.',
         ], 503);
-    }
-
-    /**
-     * Store registration data in RPOS_LOGIN table
-     */
-    private function storeRegistrationInDatabase(Request $request): array
-    {
-        // Get all registration data from session
-        $stage1Data = $request->session()->get('registration.stage1', []);
-        $stage2Data = $request->session()->get('registration.stage2', []);
-        $stage3Data = $request->session()->get('registration.stage3', []);
-        
-        // Validate that we have all required data
-        if (empty($stage1Data) || empty($stage2Data) || empty($stage3Data)) {
-            return [
-                'success' => false,
-                'message' => 'Missing registration data in session',
-            ];
-        }
-        
-        // Map data to RPOS_LOGIN table columns
-        $registrationData = [
-            'device_id' => $stage1Data['device_name'] ?? '',           // DEVICE_ID
-            'employee_id' => $stage2Data['employee_id'] ?? '',         // EMPLOYEE_ID
-            'admin_employee_id' => $stage2Data['username'] ?? $stage2Data['employee_id'] ?? '', // ADMIN_EMPLOYEE_ID
-            'lan_ip' => $stage1Data['device_ip'] ?? '',                // LAN_IP
-            'approval_flag' => 'N',                                     // APPROVAL_FLAG (default 'N')
-        ];
-        
-        // Validate required fields
-        if (empty($registrationData['device_id']) || 
-            empty($registrationData['employee_id']) || 
-            empty($registrationData['lan_ip'])) {
-            return [
-                'success' => false,
-                'message' => 'Missing required registration fields',
-                'data' => $registrationData,
-            ];
-        }
-        
-        // Call production server API to insert data
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
-        
-        try {
-            Log::info("Storing registration in RPOS_LOGIN", [
-                'data' => $registrationData,
-                'endpoint' => "{$pythonServerUrl}/api/rpos-login",
-            ]);
-            
-            $response = Http::timeout(10)->post("{$pythonServerUrl}/api/rpos-login", $registrationData);
-            
-            if ($response->successful()) {
-                $data = $response->json();
-                
-                Log::info("RPOS_LOGIN insert response", [
-                    'response' => $data,
-                ]);
-                
-                // Handle different response formats
-                $isSuccess = ($data['success'] ?? false) || 
-                           ($data['found'] ?? false) || 
-                           ($response->status() === 200 || $response->status() === 201);
-                
-                if ($isSuccess) {
-                    return [
-                        'success' => true,
-                        'message' => 'Registration stored successfully',
-                        'device_id' => $registrationData['device_id'],
-                        'response' => $data,
-                    ];
-                } else {
-                    return [
-                        'success' => false,
-                        'message' => $data['message'] ?? 'Failed to store registration',
-                        'response' => $data,
-                    ];
-                }
-            } else {
-                Log::warning("RPOS_LOGIN insert HTTP error", [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-                
-                return [
-                    'success' => false,
-                    'message' => "HTTP error: {$response->status()}",
-                    'body' => $response->body(),
-                ];
-            }
-        } catch (\Exception $e) {
-            Log::error("RPOS_LOGIN insert exception", [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            
-            return [
-                'success' => false,
-                'message' => $e->getMessage(),
-            ];
-        }
-    }
-
-    /**
-     * Check approval status from RPOS_LOGIN table
-     */
-    private function checkApprovalStatus(string $deviceId, string $employeeId): ?string
-    {
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
-        
-        try {
-            // Check approval status endpoint
-            // Try different possible endpoint formats
-            $endpoints = [
-                "{$pythonServerUrl}/api/rpos-login/status?device_id={$deviceId}&employee_id={$employeeId}",
-                "{$pythonServerUrl}/api/rpos-login/status?device_id={$deviceId}",
-            ];
-            
-            foreach ($endpoints as $endpoint) {
-                try {
-                    $response = Http::timeout(5)->get($endpoint);
-                    
-                    if ($response->successful()) {
-                        $data = $response->json();
-                        
-                        if (isset($data['approval_flag'])) {
-                            return $data['approval_flag'];
-                        } elseif (isset($data['approvalFlag'])) {
-                            return $data['approvalFlag'];
-                        } elseif (isset($data['status']) && $data['status'] === 'approved') {
-                            return 'Y';
-                        } elseif (isset($data['approved']) && $data['approved'] === true) {
-                            return 'Y';
-                        }
-                    }
-                } catch (\Exception $e) {
-                    continue;
-                }
-            }
-        } catch (\Exception $e) {
-            // Silent fail - will return null
-        }
-        
-        return null;
-    }
-
-    /**
-     * Home page after approval
-     */
-    public function home(Request $request): View
-    {
-        // Get registration data from session
-        $stage1Data = $request->session()->get('registration.stage1', []);
-        $stage2Data = $request->session()->get('registration.stage2', []);
-        $stage3Data = $request->session()->get('registration.stage3', []);
-        
-        return view('device-registration.home', [
-            'deviceName' => $stage1Data['device_name'] ?? 'N/A',
-            'deviceIp' => $stage1Data['device_ip'] ?? 'N/A',
-            'employeeId' => $stage2Data['employee_id'] ?? 'N/A',
-            'outletName' => $stage3Data['outlet_name'] ?? 'N/A',
-        ]);
     }
 
     /**
