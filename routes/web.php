@@ -14,3 +14,4 @@ Route::post('/stage-3', [DeviceRegistrationController::class, 'storeStageThree']
 Route::get('/api/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])->name('registration.employee.get');
 
 Route::get('/waiting-for-approval', [DeviceRegistrationController::class, 'waiting'])->name('registration.waiting');
+Route::get('/home', [DeviceRegistrationController::class, 'home'])->name('home');

@@ -95,13 +95,24 @@
 
             try {
                 const response = await fetch(`{{ route('registration.employee.get', ['employeeId' => '__ID__']) }}`.replace('__ID__', encodeURIComponent(employeeId)));
+                
+                if (!response.ok) {
+                    console.error('HTTP error:', response.status, response.statusText);
+                    employeeNameContainer.style.display = 'none';
+                    usernameInput.value = '';
+                    return;
+                }
+                
                 const data = await response.json();
+                console.log('Employee data response:', data);
 
-                if (data.success) {
+                if (data.success && data.employee && data.employee.name) {
                     employeeNameText.textContent = data.employee.name;
                     employeeNameContainer.style.display = 'block';
-                    usernameInput.value = data.username; // Username = EMPLOYEECODE
+                    usernameInput.value = data.username || employeeId; // Username = EMPLOYEECODE
+                    console.log('✓ Employee data loaded:', data.employee.name);
                 } else {
+                    console.warn('Employee not found or invalid response:', data);
                     employeeNameContainer.style.display = 'none';
                     usernameInput.value = '';
                 }

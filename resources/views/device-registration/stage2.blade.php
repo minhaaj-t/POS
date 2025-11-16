@@ -27,14 +27,13 @@
             </div>
 
             <div>
-                <label for="manager_name">Manager Name</label>
+                <label for="manager_name">Manager Name <span style="color: #64748b; font-weight: normal;">(Optional)</span></label>
                 <input
                     id="manager_name"
                     name="manager_name"
                     type="text"
                     value="{{ old('manager_name', $location['manager'] ?? $form['manager_name'] ?? '') }}"
                     readonly
-                    required
                 >
                 @error('manager_name')
                     <p class="error">{{ $message }}</p>
@@ -73,13 +72,12 @@
             </div>
 
             <div>
-                <label for="manager_name">Manager Name</label>
+                <label for="manager_name">Manager Name <span style="color: #64748b; font-weight: normal;">(Optional)</span></label>
                 <input
                     id="manager_name"
                     name="manager_name"
                     type="text"
                     value="{{ old('manager_name', $form['manager_name'] ?? '') }}"
-                    required
                 >
                 @error('manager_name')
                     <p class="error">{{ $message }}</p>
