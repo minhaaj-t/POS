@@ -188,7 +188,7 @@ class DeviceRegistrationController extends Controller
      */
     private function getEmployeeDataForValidation(string $employeeId, string $enteredPassword): array
     {
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'http://localhost:5000');
+        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
         
         try {
             $response = Http::timeout(5)->get("{$pythonServerUrl}/api/employees/{$employeeId}");
@@ -241,7 +241,7 @@ class DeviceRegistrationController extends Controller
      */
     private function getLocationDetails(int $locationCode): ?array
     {
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'http://localhost:5000');
+        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
         
         try {
             $response = Http::timeout(5)->get("{$pythonServerUrl}/api/locations/{$locationCode}");
@@ -410,7 +410,7 @@ class DeviceRegistrationController extends Controller
     public function getEmployeeById(Request $request, string $employeeId)
     {
         // Try to fetch from Python Oracle server first
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'http://localhost:5000');
+        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
         
         try {
             $response = Http::timeout(3)->get("{$pythonServerUrl}/api/employees/{$employeeId}");
