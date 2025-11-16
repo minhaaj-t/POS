@@ -498,29 +498,46 @@ class DeviceRegistrationController extends Controller
                     'response' => $data,
                 ]);
                 
-                // Handle both 'success' and 'found' response formats
+                // Handle different response formats from production API
+                // Production API might return: {found: true, ...} or {success: true, ...}
                 $isValid = ($data['success'] ?? false) || ($data['found'] ?? false);
                 
                 if ($isValid) {
                     // Normalize response for frontend compatibility
                     // Frontend expects: {success: true, employee: {id: "...", name: "..."}, username: "..."}
+                    
+                    // Try to extract employee name from various possible locations
+                    $employeeName = $data['name'] 
+                        ?? $data['employee_name']
+                        ?? $data['employee']['name'] 
+                        ?? $data['user']['name']
+                        ?? $data['user']['USERID']  // From Oracle database
+                        ?? $data['USERID']  // Direct from Oracle
+                        ?? $data['username']
+                        ?? '';
+                    
+                    // Try to extract employee ID
+                    $employeeIdValue = $data['employee_id'] 
+                        ?? $data['id'] 
+                        ?? $data['employee']['id']
+                        ?? $data['employee_code']
+                        ?? $data['EMPLOYEECODE']  // From Oracle database
+                        ?? $employeeId;
+                    
+                    // Try to extract username
+                    $username = $data['username'] 
+                        ?? $data['employee_id'] 
+                        ?? $data['id']
+                        ?? $data['employee_code']
+                        ?? $employeeId;
+                    
                     $normalizedData = [
                         'success' => true,
                         'employee' => [
-                            'id' => $data['employee_id'] 
-                                ?? $data['id'] 
-                                ?? $data['employee']['id'] 
-                                ?? $employeeId,
-                            'name' => $data['name'] 
-                                ?? $data['employee']['name'] 
-                                ?? $data['user']['name']
-                                ?? $data['username']
-                                ?? '',
+                            'id' => (string)$employeeIdValue,
+                            'name' => $employeeName ?: 'Unknown Employee',
                         ],
-                        'username' => $data['username'] 
-                            ?? $data['employee_id'] 
-                            ?? $data['id']
-                            ?? $employeeId,
+                        'username' => (string)$username,
                     ];
                     
                     // Include additional fields if present
@@ -539,12 +556,23 @@ class DeviceRegistrationController extends Controller
                         'normalized' => $normalizedData,
                     ]);
                     
-                    return response()->json($normalizedData);
+                    return response()->json($normalizedData)
+                        ->header('Access-Control-Allow-Origin', '*')
+                        ->header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                        ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
                 } else {
                     Log::warning("Employee not found in API response", [
                         'employee_id' => $employeeId,
                         'response' => $data,
                     ]);
+                    
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Employee not found.',
+                        'employee_id' => $employeeId,
+                    ], 404)->header('Access-Control-Allow-Origin', '*')
+                            ->header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                            ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
                 }
             } else {
                 Log::warning("Employee by ID HTTP error", [
@@ -552,6 +580,15 @@ class DeviceRegistrationController extends Controller
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to fetch employee data from server.',
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ], $response->status())->header('Access-Control-Allow-Origin', '*')
+                        ->header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                        ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
             }
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
             Log::error("Employee API connection exception", [
@@ -559,12 +596,28 @@ class DeviceRegistrationController extends Controller
                 'error' => $e->getMessage(),
                 'url' => $url ?? 'unknown',
             ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to connect to employee service. Please check your connection.',
+                'error' => $e->getMessage(),
+            ], 503)->header('Access-Control-Allow-Origin', '*')
+                    ->header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                    ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         } catch (\Exception $e) {
             Log::error("Employee API exception", [
                 'employee_id' => $employeeId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while fetching employee data.',
+                'error' => $e->getMessage(),
+            ], 500)->header('Access-Control-Allow-Origin', '*')
+                    ->header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                    ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         }
         
         // Return error if Python server is unavailable
@@ -579,7 +632,10 @@ class DeviceRegistrationController extends Controller
         return response()->json([
             'success' => false,
             'message' => 'Employee service unavailable. Please ensure the Python Oracle server is running.',
-        ], 503);
+            'employee_id' => $employeeId,
+        ], 503)->header('Access-Control-Allow-Origin', '*')
+                ->header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     }
 
     /**
