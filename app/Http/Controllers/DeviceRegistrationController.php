@@ -188,7 +188,7 @@ class DeviceRegistrationController extends Controller
      */
     private function getEmployeeDataForValidation(string $employeeId, string $enteredPassword): array
     {
-        $pythonServerUrl = config('app.python_server_url', 'https://vansale-app.loca.lt');
+        $pythonServerUrl = env('PYTHON_SERVER_URL', 'http://localhost:5000');
         
         try {
             $response = Http::timeout(5)->get("{$pythonServerUrl}/api/employees/{$employeeId}");
@@ -241,7 +241,7 @@ class DeviceRegistrationController extends Controller
      */
     private function getLocationDetails(int $locationCode): ?array
     {
-        $pythonServerUrl = config('app.python_server_url', 'https://vansale-app.loca.lt');
+        $pythonServerUrl = env('PYTHON_SERVER_URL', 'http://localhost:5000');
         
         try {
             $response = Http::timeout(5)->get("{$pythonServerUrl}/api/locations/{$locationCode}");
@@ -299,7 +299,7 @@ class DeviceRegistrationController extends Controller
     private function getLanIpAddress(): string
     {
         // Try to fetch from local server first
-        $localServerUrl = config('app.local_server_url', 'https://vansale-app.loca.lt');
+        $localServerUrl = env('LOCAL_SERVER_URL', 'http://localhost:5001');
         
         try {
             $response = Http::timeout(2)->get("{$localServerUrl}/api/lan-ip");
@@ -359,7 +359,7 @@ class DeviceRegistrationController extends Controller
     private function getDeviceName(): string
     {
         // Try to fetch from local server first
-        $localServerUrl = config('app.local_server_url', 'https://vansale-app.loca.lt');
+        $localServerUrl = env('LOCAL_SERVER_URL', 'http://localhost:5001');
         
         try {
             $response = Http::timeout(2)->get("{$localServerUrl}/api/device-name");
@@ -410,7 +410,7 @@ class DeviceRegistrationController extends Controller
     public function getEmployeeById(Request $request, string $employeeId)
     {
         // Try to fetch from Python Oracle server first
-        $pythonServerUrl = config('app.python_server_url', 'https://vansale-app.loca.lt');
+        $pythonServerUrl = env('PYTHON_SERVER_URL', 'http://localhost:5000');
         
         try {
             $response = Http::timeout(3)->get("{$pythonServerUrl}/api/employees/{$employeeId}");

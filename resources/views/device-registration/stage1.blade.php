@@ -51,9 +51,6 @@
 @endsection
 
 @section('scripts')
-@php
-    $localServerUrl = config('app.local_server_url', 'https://vansale-app.loca.lt');
-@endphp
 <script>
 (function() {
     const deviceIpInput = document.getElementById('device_ip');
@@ -62,9 +59,6 @@
     if (!deviceIpInput || !deviceNameInput) {
         return;
     }
-    
-    // Local server URL from Laravel config
-    const localServerUrl = '{{ $localServerUrl }}';
 
     // Function to get local IP address using WebRTC
     async function getLocalIPAddress() {
@@ -188,8 +182,8 @@
             deviceNameInput.style.color = '#64748b';
         }
 
-        // Try to fetch from local server first
-        // Use production URL if available, otherwise fallback to localhost
+        // Try to fetch from local server first (default: http://localhost:5001)
+        const localServerUrl = 'http://localhost:5001';
         let serverInfoFetched = false;
 
         try {

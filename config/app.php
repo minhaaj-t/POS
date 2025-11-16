@@ -56,30 +56,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Local Server URL
-    |--------------------------------------------------------------------------
-    |
-    | This URL is used to connect to the local Python server for device
-    | information (device name and LAN IP address). Use HTTPS in production.
-    |
-    */
-
-    'local_server_url' => env('LOCAL_SERVER_URL', 'https://vansale-app.loca.lt'),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Python Server URL
-    |--------------------------------------------------------------------------
-    |
-    | This URL is used to connect to the Python Oracle server for employee
-    | and location data. Use HTTPS in production.
-    |
-    */
-
-    'python_server_url' => env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt'),
-
-    /*
-    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
