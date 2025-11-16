@@ -18,12 +18,20 @@ Route::get('/waiting-for-approval', [DeviceRegistrationController::class, 'waiti
 
 // Test route for API connection (remove in production)
 Route::get('/test-api/employee/{employeeId}', function ($employeeId) {
-    $apiUrl = "https://vansale-app.loca.lt/api/user/{$employeeId}";
+    // Use config for API URL
+    $baseUrl = config('api.production.url');
+    $endpoint = str_replace('{id}', $employeeId, config('api.endpoints.employee'));
+    $apiUrl = $baseUrl . $endpoint;
     
     try {
-        $response = Http::timeout(10)
-            ->withoutVerifying()
-            ->get($apiUrl);
+        $timeout = config('api.production.timeout', 10);
+        $request = Http::timeout($timeout);
+        
+        if (!config('api.production.verify_ssl', false)) {
+            $request = $request->withoutVerifying();
+        }
+        
+        $response = $request->get($apiUrl);
         
         return response()->json([
             'url' => $apiUrl,

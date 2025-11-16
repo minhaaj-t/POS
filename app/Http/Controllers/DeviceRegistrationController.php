@@ -47,6 +47,7 @@ class DeviceRegistrationController extends Controller
             'stages' => $this->stages(),
             'currentStage' => 1,
             'alreadySubmitted' => $alreadySubmitted,
+            'localServerUrl' => $this->getLocalServerUrl(), // Pass to view for JavaScript
         ]);
     }
 
@@ -188,21 +189,17 @@ class DeviceRegistrationController extends Controller
      */
     private function getEmployeeDataForValidation(string $employeeId, string $enteredPassword): array
     {
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
-        
         try {
-            // Production server uses /api/user/<employee_code> instead of /api/employees/<employee_id>
-            // Disable SSL verification for localtunnel URLs (self-signed certificates)
-            $url = "{$pythonServerUrl}/api/user/{$employeeId}";
+            // Use config helper to get API endpoint URL
+            $url = $this->getApiEndpoint('employee', $employeeId);
             
             Log::info("Fetching employee data", [
                 'employee_id' => $employeeId,
                 'url' => $url,
             ]);
             
-            $response = Http::timeout(10)
-                ->withoutVerifying() // Disable SSL verification for localtunnel
-                ->get($url);
+            // Use config helper to make API request with proper settings
+            $response = $this->makeApiRequest($url)->get($url);
             
             Log::info("Employee API response received", [
                 'employee_id' => $employeeId,
@@ -289,16 +286,17 @@ class DeviceRegistrationController extends Controller
      */
     private function getLocationDetails(int $locationCode): ?array
     {
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
-        
         try {
-            // Production server uses /api/location/<location_code> instead of /api/locations/<location_code>
-            // Disable SSL verification for localtunnel URLs
-            $url = "{$pythonServerUrl}/api/location/{$locationCode}";
+            // Use config helper to get API endpoint URL
+            $url = $this->getApiEndpoint('location', (string)$locationCode);
             
-            $response = Http::timeout(10)
-                ->withoutVerifying() // Disable SSL verification for localtunnel
-                ->get($url);
+            Log::info("Fetching location details", [
+                'location_code' => $locationCode,
+                'url' => $url,
+            ]);
+            
+            // Use config helper to make API request with proper settings
+            $response = $this->makeApiRequest($url)->get($url);
             
             if ($response->successful()) {
                 $data = $response->json();
@@ -363,10 +361,10 @@ class DeviceRegistrationController extends Controller
     private function getLanIpAddress(): string
     {
         // Try to fetch from local server first
-        $localServerUrl = env('LOCAL_SERVER_URL', 'http://localhost:5001');
-        
         try {
-            $response = Http::timeout(2)->get("{$localServerUrl}/api/lan-ip");
+            $url = $this->getLocalEndpoint('lan_ip');
+            
+            $response = Http::timeout(config('api.local.timeout', 2))->get($url);
             
             if ($response->successful()) {
                 $data = $response->json();
@@ -423,10 +421,10 @@ class DeviceRegistrationController extends Controller
     private function getDeviceName(): string
     {
         // Try to fetch from local server first
-        $localServerUrl = env('LOCAL_SERVER_URL', 'http://localhost:5001');
-        
         try {
-            $response = Http::timeout(2)->get("{$localServerUrl}/api/device-name");
+            $url = $this->getLocalEndpoint('device_name');
+            
+            $response = Http::timeout(config('api.local.timeout', 2))->get($url);
             
             if ($response->successful()) {
                 $data = $response->json();
@@ -474,21 +472,17 @@ class DeviceRegistrationController extends Controller
     public function getEmployeeById(Request $request, string $employeeId)
     {
         // Try to fetch from Python Oracle server first
-        $pythonServerUrl = env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt');
-        
         try {
-            // Production server uses /api/user/<employee_code> instead of /api/employees/<employee_id>
-            // Disable SSL verification for localtunnel URLs
-            $url = "{$pythonServerUrl}/api/user/{$employeeId}";
+            // Use config helper to get API endpoint URL
+            $url = $this->getApiEndpoint('employee', $employeeId);
             
             Log::info("Fetching employee by ID", [
                 'employee_id' => $employeeId,
                 'url' => $url,
             ]);
             
-            $response = Http::timeout(10)
-                ->withoutVerifying() // Disable SSL verification for localtunnel
-                ->get($url);
+            // Use config helper to make API request with proper settings
+            $response = $this->makeApiRequest($url)->get($url);
             
             Log::info("Employee by ID response received", [
                 'employee_id' => $employeeId,
@@ -586,6 +580,59 @@ class DeviceRegistrationController extends Controller
             'success' => false,
             'message' => 'Employee service unavailable. Please ensure the Python Oracle server is running.',
         ], 503);
+    }
+
+    /**
+     * Get production API server URL
+     */
+    private function getProductionApiUrl(): string
+    {
+        return config('api.production.url', 'https://vansale-app.loca.lt');
+    }
+
+    /**
+     * Get local server URL
+     */
+    private function getLocalServerUrl(): string
+    {
+        return config('api.local.url', 'http://localhost:5001');
+    }
+
+    /**
+     * Get API endpoint URL
+     */
+    private function getApiEndpoint(string $endpoint, string $param = ''): string
+    {
+        $baseUrl = $this->getProductionApiUrl();
+        $endpointPath = config("api.endpoints.{$endpoint}", "/api/{$endpoint}/{$param}");
+        
+        return str_replace('{id}', $param, str_replace('{code}', $param, $baseUrl . $endpointPath));
+    }
+
+    /**
+     * Get local server endpoint URL
+     */
+    private function getLocalEndpoint(string $endpoint): string
+    {
+        $baseUrl = $this->getLocalServerUrl();
+        $endpointPath = config("api.local_endpoints.{$endpoint}", "/api/{$endpoint}");
+        
+        return $baseUrl . $endpointPath;
+    }
+
+    /**
+     * Make HTTP request with configured options
+     */
+    private function makeApiRequest(string $url, string $method = 'GET', array $options = []): \Illuminate\Http\Client\PendingRequest
+    {
+        $request = Http::timeout(config('api.production.timeout', 10));
+        
+        // Disable SSL verification if configured
+        if (!config('api.production.verify_ssl', false)) {
+            $request = $request->withoutVerifying();
+        }
+        
+        return $request;
     }
 
     /**

@@ -182,8 +182,8 @@
             deviceNameInput.style.color = '#64748b';
         }
 
-        // Try to fetch from local server first (default: http://localhost:5001)
-        const localServerUrl = 'http://localhost:5001';
+        // Try to fetch from local server first (use config from Laravel)
+        const localServerUrl = '{{ $localServerUrl ?? "http://localhost:5001" }}';
         let serverInfoFetched = false;
 
         try {
