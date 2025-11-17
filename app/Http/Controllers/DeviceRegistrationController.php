@@ -334,6 +334,8 @@ class DeviceRegistrationController extends Controller
                     }
                     
                     if ($location) {
+                        $location = $this->normalizeLocationData($location);
+
                         Log::info("Location details retrieved successfully", [
                             'location_code' => $locationCode,
                             'location_name' => $location['location_name'] ?? $location['locationName'] ?? 'N/A',
@@ -773,6 +775,80 @@ class DeviceRegistrationController extends Controller
         }
 
         return null;
+    }
+
+    /**
+     * Normalize location data keys to consistent snake_case.
+     */
+    private function normalizeLocationData(array $location): array
+    {
+        return [
+            'location_code' => $location['location_code'] ?? $location['LOCATIONCODE'] ?? null,
+            'location_name' => $location['location_name'] ?? $location['LOCATIONNAME'] ?? null,
+            'address' => $location['address'] ?? $location['ADDRESS'] ?? null,
+            'fax' => $location['fax'] ?? $location['FAX'] ?? null,
+            'email_id' => $location['email_id'] ?? $location['emailid'] ?? $location['EMAILID'] ?? null,
+            'manager' => $location['manager'] ?? $location['MANAGER'] ?? null,
+            'telephone' => $location['telephone'] ?? $location['TELEPHONE'] ?? null,
+        ] + $location;
+    }
+
+    /**
+     * Public endpoint to fetch location details by code.
+     */
+    public function getLocationByCode(Request $request, string $locationCode)
+    {
+        try {
+            $code = (int) $locationCode;
+
+            if ($code <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid location code provided.',
+                ], 422);
+            }
+
+            $location = $this->getLocationDetails($code);
+
+            if ($location) {
+                return response()->json([
+                    'success' => true,
+                    'location' => $location,
+                ])->header('Access-Control-Allow-Origin', '*')
+                    ->header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                    ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Location not found.',
+                'location_code' => $code,
+            ], 404)->header('Access-Control-Allow-Origin', '*')
+                ->header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to connect to location service. Please check your connection.',
+                'error' => $e->getMessage(),
+            ], 503)->header('Access-Control-Allow-Origin', '*')
+                ->header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        } catch (\Exception $e) {
+            Log::error("Location API exception", [
+                'location_code' => $locationCode,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred while fetching location data.',
+                'error' => $e->getMessage(),
+            ], 500)->header('Access-Control-Allow-Origin', '*')
+                ->header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                ->header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        }
     }
 }
 

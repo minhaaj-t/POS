@@ -64,3 +64,10 @@ Route::get('/test-api/employee/{employeeId}', function ($employeeId) {
 Route::get('/test-route/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])
     ->name('test.employee.get')
     ->where('employeeId', '[0-9]+');
+
+// Location lookup proxy routes
+Route::get('/api/location/{locationCode}', [DeviceRegistrationController::class, 'getLocationByCode'])
+    ->name('registration.location.get')
+    ->where('locationCode', '[0-9]+');
+Route::get('/location/{locationCode}', [DeviceRegistrationController::class, 'getLocationByCode'])
+    ->where('locationCode', '[0-9]+');
