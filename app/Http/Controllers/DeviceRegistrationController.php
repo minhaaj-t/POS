@@ -175,7 +175,7 @@ class DeviceRegistrationController extends Controller
 
         $data = $request->validate([
             'outlet_name' => ['required', 'string', 'max:255'],
-            'manager_name' => ['required', 'string', 'max:255'],
+            'manager_name' => ['nullable', 'string', 'max:255'],
             'address' => ['required', 'string', 'max:500'],
         ]);
 
@@ -224,13 +224,20 @@ class DeviceRegistrationController extends Controller
                 $isValid = ($data['success'] ?? false) || ($data['found'] ?? false);
                 
                 if ($isValid) {
+                    $userData = $this->extractEmployeePayload($data) ?? [];
+                    
                     // Try different possible locations for password and location_code
-                    $dbPassword = $data['password'] 
+                    $dbPassword = $userData['password'] 
+                        ?? $userData['PASSWORD'] 
+                        ?? $data['password'] 
                         ?? $data['user']['password'] 
                         ?? $data['data']['password'] 
                         ?? null;
                     
-                    $locationCode = $data['location_code'] 
+                    $locationCode = $userData['location_code'] 
+                        ?? $userData['LOCATIONCODE'] 
+                        ?? $userData['locationCode']
+                        ?? $data['location_code'] 
                         ?? $data['user']['location_code'] 
                         ?? $data['data']['location_code']
                         ?? $data['locationCode']
@@ -306,22 +313,33 @@ class DeviceRegistrationController extends Controller
                     'response' => $data,
                 ]);
                 
-                if ($data['success'] ?? false) {
-                    // Handle different response formats
-                    // Format 1: {success: true, location: {...}}
-                    // Format 2: {success: true, data: {...}}
-                    $location = $data['location'] 
-                        ?? $data['data'] 
-                        ?? null;
+                // Handle different response formats from production API
+                // Production API returns: {found: true, location_code: ..., location_name: ..., ...}
+                // Or: {success: true, location: {...}} or {success: true, data: {...}}
+                $isValid = ($data['found'] ?? false) || ($data['success'] ?? false);
+                
+                if ($isValid) {
+                    // If data is at root level (found: true format), use it directly
+                    // Otherwise, check for nested location or data
+                    $location = null;
+                    
+                    if (isset($data['found']) && $data['found'] === true) {
+                        // Format: {found: true, location_code: ..., location_name: ..., ...}
+                        // Data is at root level, return it directly (excluding 'found' key)
+                        $location = $data;
+                        unset($location['found']); // Remove 'found' key from location data
+                    } else {
+                        // Format: {success: true, location: {...}} or {success: true, data: {...}}
+                        $location = $data['location'] ?? $data['data'] ?? null;
+                    }
                     
                     if ($location) {
                         Log::info("Location details retrieved successfully", [
                             'location_code' => $locationCode,
                             'location_name' => $location['location_name'] ?? $location['locationName'] ?? 'N/A',
                         ]);
+                        return $location;
                     }
-                    
-                    return $location;
                 } else {
                     Log::warning("Location fetch returned unsuccessful", [
                         'location_code' => $locationCode,
@@ -503,11 +521,14 @@ class DeviceRegistrationController extends Controller
                 $isValid = ($data['success'] ?? false) || ($data['found'] ?? false);
                 
                 if ($isValid) {
+                    $userData = $this->extractEmployeePayload($data) ?? [];
+                    
                     // Normalize response for frontend compatibility
                     // Frontend expects: {success: true, employee: {id: "...", name: "..."}, username: "..."}
-                    
-                    // Try to extract employee name from various possible locations
-                    $employeeName = $data['name'] 
+                    $employeeName = $userData['name'] 
+                        ?? $userData['employee_name']
+                        ?? $userData['USERID']
+                        ?? $data['name'] 
                         ?? $data['employee_name']
                         ?? $data['employee']['name'] 
                         ?? $data['user']['name']
@@ -517,7 +538,9 @@ class DeviceRegistrationController extends Controller
                         ?? '';
                     
                     // Try to extract employee ID
-                    $employeeIdValue = $data['employee_id'] 
+                    $employeeIdValue = $userData['employee_id'] 
+                        ?? $userData['EMPLOYEECODE'] 
+                        ?? $data['employee_id'] 
                         ?? $data['id'] 
                         ?? $data['employee']['id']
                         ?? $data['employee_code']
@@ -525,7 +548,9 @@ class DeviceRegistrationController extends Controller
                         ?? $employeeId;
                     
                     // Try to extract username
-                    $username = $data['username'] 
+                    $username = $userData['username'] 
+                        ?? $userData['EMPLOYEECODE']
+                        ?? $data['username'] 
                         ?? $data['employee_id'] 
                         ?? $data['id']
                         ?? $data['employee_code']
@@ -541,11 +566,15 @@ class DeviceRegistrationController extends Controller
                     ];
                     
                     // Include additional fields if present
-                    if (isset($data['password'])) {
-                        $normalizedData['password'] = $data['password'];
+                    if (isset($userData['password']) || isset($userData['PASSWORD']) || isset($data['password'])) {
+                        $normalizedData['password'] = $userData['password'] 
+                            ?? $userData['PASSWORD'] 
+                            ?? $data['password'];
                     }
-                    if (isset($data['location_code'])) {
-                        $normalizedData['location_code'] = $data['location_code'];
+                    if (isset($userData['location_code']) || isset($userData['LOCATIONCODE']) || isset($data['location_code'])) {
+                        $normalizedData['location_code'] = $userData['location_code'] 
+                            ?? $userData['LOCATIONCODE'] 
+                            ?? $data['location_code'];
                     }
                     if (isset($data['locationCode'])) {
                         $normalizedData['location_code'] = $data['locationCode'];
@@ -699,6 +728,51 @@ class DeviceRegistrationController extends Controller
             3 => 'Shop Details',
             4 => 'Waiting',
         ];
+    }
+
+    /**
+     * Extract the employee portion from various API response shapes.
+     */
+    private function extractEmployeePayload(array $data): ?array
+    {
+        $candidates = [];
+
+        if (isset($data['users']) && is_array($data['users']) && count($data['users']) > 0) {
+            $candidates[] = $data['users'][0];
+        }
+
+        if (isset($data['user']) && is_array($data['user'])) {
+            $candidates[] = $data['user'];
+        }
+
+        if (isset($data['data'])) {
+            if (isset($data['data']['user']) && is_array($data['data']['user'])) {
+                $candidates[] = $data['data']['user'];
+            } elseif (is_array($data['data'])) {
+                $candidates[] = $data['data'];
+            }
+        }
+
+        $candidates[] = $data;
+
+        foreach ($candidates as $candidate) {
+            if (! is_array($candidate)) {
+                continue;
+            }
+
+            if (
+                array_key_exists('employee_id', $candidate) ||
+                array_key_exists('EMPLOYEECODE', $candidate) ||
+                array_key_exists('username', $candidate) ||
+                array_key_exists('USERID', $candidate) ||
+                array_key_exists('password', $candidate) ||
+                array_key_exists('PASSWORD', $candidate)
+            ) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 }
 

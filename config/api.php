@@ -53,7 +53,7 @@ return [
     */
 
     'endpoints' => [
-        'employee' => '/api/user/{id}',
+        'employee' => '/api/auth/users/search/{id}',
         'location' => '/api/location/{code}',
         'health' => '/api/health',
     ],
