@@ -16,6 +16,9 @@ Route::post('/stage-3', [DeviceRegistrationController::class, 'storeStageThree']
 Route::get('/api/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])
     ->name('registration.employee.get')
     ->where('employeeId', '[0-9]+');
+// Friendly alias without /api prefix for live deployments
+Route::get('/employee/{employeeId}', [DeviceRegistrationController::class, 'getEmployeeById'])
+    ->where('employeeId', '[0-9]+');
 Route::options('/api/employee/{employeeId}', function () {
     return response()->json([])
         ->header('Access-Control-Allow-Origin', '*')
