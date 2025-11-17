@@ -22,7 +22,7 @@ return [
     */
 
     'production' => [
-        'url' => env('PYTHON_SERVER_URL', 'https://vansale-app.loca.lt'),
+        'url' => env('PYTHON_SERVER_URL', 'http://rfs-api.dyndns.org:5009'),
         'timeout' => env('API_TIMEOUT', 10),
         'verify_ssl' => env('API_VERIFY_SSL', false), // Set to false for localtunnel URLs
     ],
